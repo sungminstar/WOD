@@ -22,6 +22,7 @@ import NoticeDetail from './pages/NoticeDetail';
 import CustomCameraRoll from './components/CustomCameraRoll';
 import VideoPlayer from './pages/VideoPlayer';
 import ChatList from './pages/ChatList';
+import AddText from './pages/AddText';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -69,6 +70,7 @@ const Router = () => {
       <Stack.Screen name="MainTab" component={MainTab} />
       <Stack.Screen name="Follower" component={Follower} />
       <Stack.Screen name="ChatScreen" component={ChatScreen} />
+      <Stack.Screen name="AddText" component={AddText} />
     </Stack.Navigator>
   );
 };

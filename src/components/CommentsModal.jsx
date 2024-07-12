@@ -12,6 +12,8 @@ import {
   Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
+import Toast from '../components/Toast'; // Toast 컴포넌트 import
+import {useNavigation} from '@react-navigation/native'; // useNavigation 훅 import
 
 const more = require('../assets/icons/more.png');
 const addButton = require('../assets/icons/bottomtab/add_circle_off.png');
@@ -62,11 +64,21 @@ const CommentItem = ({item, index}) => {
 const CommentsModal = ({isVisible, setIsVisible}) => {
   const [textValue, setTextValue] = useState('');
   const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = useWindowDimensions();
+  const navigation = useNavigation(); // navigation 객체 가져오기
+  const [toastVisible, setToastVisible] = useState(false); // 토스트 가시성 상태 관리
 
   const renderItem = useCallback(
     ({item, index}) => <CommentItem item={item} index={index} />,
     [],
   );
+
+  const commetUploadToast = () => {
+    setToastVisible(true); // 토스트 메시지 보이기
+
+    setTimeout(() => {
+      setToastVisible(false); // 토스트 메시지 숨기기
+    }, 2000);
+  };
 
   return (
     <Modal
@@ -174,6 +186,7 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
               />
             </View>
             <TouchableOpacity
+              onPress={commetUploadToast}
               style={{
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -183,6 +196,15 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
             </TouchableOpacity>
           </View>
         </View>
+        {/* Toast 컴포넌트 */}
+        {toastVisible && (
+          <Toast
+            message="Uploaded!"
+            visible={toastVisible}
+            duration={2000}
+            handleCancel={() => setToastVisible(false)}
+          />
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );

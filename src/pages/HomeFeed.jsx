@@ -216,33 +216,32 @@ const HomeFeed = () => {
           backgroundColor: '#FFF',
           marginBottom: 32,
         }}>
-        <FlatList
-          data={dummy_feed}
-          renderItem={renderFeed}
-          keyExtractor={item => item.id}
-          removeClippedSubviews
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={() => (
-            <View
-              style={{
-                borderStyle: 'solid',
-                borderBottomWidth: 0.5,
-                borderLeftWidth: 0.5,
-                borderRightWidth: 0.5,
-                borderColor: '#EEE',
-              }}>
-              <View
-                style={{
-                  padding: 16,
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}>
-                <Image source={logo} style={{width: 80.5, height: 22}} />
-              </View>
-            </View>
-          )}
-        />
+        <View
+          style={{
+            borderStyle: 'solid',
+            borderBottomWidth: 0.5,
+            borderLeftWidth: 0.5,
+            borderRightWidth: 0.5,
+            borderColor: '#EEE',
+          }}>
+          <View
+            style={{
+              padding: 16,
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}>
+            <Image source={logo} style={{width: 80.5, height: 22}} />
+          </View>
+          <FlatList
+            data={dummy_feed}
+            renderItem={renderFeed}
+            keyExtractor={item => item.id}
+            removeClippedSubviews
+            showsVerticalScrollIndicator={false}
+          />
+        </View>
+
         <CommentsModal isVisible={isVisible} setIsVisible={setIsVisible} />
       </View>
     </SafeAreaView>
