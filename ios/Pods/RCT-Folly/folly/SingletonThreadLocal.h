@@ -27,45 +27,8 @@
 #include <folly/detail/Singleton.h>
 #include <folly/detail/UniqueInstance.h>
 #include <folly/functional/Invoke.h>
-#include <folly/lang/Hint.h>
 
 namespace folly {
-
-namespace detail {
-
-struct SingletonThreadLocalState {
-  struct Wrapper;
-
-  struct LocalCache {
-    Wrapper* cache;
-  };
-  static_assert( // pod avoids tls-init guard var and tls-fini ub use-after-dtor
-      std::is_standard_layout<LocalCache>::value &&
-          std::is_trivial<LocalCache>::value,
-      "non-pod");
-
-  struct LocalLifetime;
-
-  struct Wrapper {
-    using LocalCacheSet = std::unordered_set<LocalCache*>;
-
-    // per-cache refcounts, the number of lifetimes tracking that cache
-    std::unordered_map<LocalCache*, size_t> caches;
-
-    // per-lifetime cache tracking; 1-M lifetimes may track 1-N caches
-    std::unordered_map<LocalLifetime*, LocalCacheSet> lifetimes;
-
-    Wrapper() noexcept;
-    ~Wrapper();
-  };
-
-  struct LocalLifetime {
-    void destroy(Wrapper& wrapper) noexcept;
-    void track(LocalCache& cache, Wrapper& wrapper) noexcept;
-  };
-};
-
-} // namespace detail
 
 /// SingletonThreadLocal
 ///
@@ -109,24 +72,64 @@ class SingletonThreadLocal {
  private:
   static detail::UniqueInstance unique;
 
-  using State = detail::SingletonThreadLocalState;
-  using LocalCache = State::LocalCache;
+  struct Wrapper;
 
-  struct ObjectWrapper {
+  struct LocalCache {
+    Wrapper* cache;
+  };
+  static_assert(
+      std::is_standard_layout<LocalCache>::value &&
+          std::is_trivial<LocalCache>::value,
+      "non-pod");
+
+  struct LocalLifetime;
+
+  struct Wrapper {
     using Object = invoke_result_t<Make>;
     static_assert(std::is_convertible<Object&, T&>::value, "inconvertible");
 
-    // keep as first field in first base, to save 1 instr in the fast path
+    using LocalCacheSet = std::unordered_set<LocalCache*>;
+
+    // keep as first field, to save 1 instr in the fast path
     Object object{Make{}()};
-  };
-  struct Wrapper : ObjectWrapper, State::Wrapper {
-    /* implicit */ operator T&() { return ObjectWrapper::object; }
+
+    // per-cache refcounts, the number of lifetimes tracking that cache
+    std::unordered_map<LocalCache*, size_t> caches;
+
+    // per-lifetime cache tracking; 1-M lifetimes may track 1-N caches
+    std::unordered_map<LocalLifetime*, LocalCacheSet> lifetimes;
+
+    /* implicit */ operator T&() { return object; }
+
+    ~Wrapper() {
+      for (auto& kvp : caches) {
+        kvp.first->cache = nullptr;
+      }
+    }
   };
 
   using WrapperTL = ThreadLocal<Wrapper, TLTag>;
 
-  struct LocalLifetime : State::LocalLifetime {
-    ~LocalLifetime() { destroy(getWrapper()); }
+  struct LocalLifetime {
+    ~LocalLifetime() {
+      auto& wrapper = getWrapper();
+      auto& lifetimes = wrapper.lifetimes[this];
+      for (auto cache : lifetimes) {
+        auto const it = wrapper.caches.find(cache);
+        if (!--it->second) {
+          wrapper.caches.erase(it);
+          cache->cache = nullptr;
+        }
+      }
+      wrapper.lifetimes.erase(this);
+    }
+
+    void track(LocalCache& cache) {
+      auto& wrapper = getWrapper();
+      cache.cache = &wrapper;
+      auto const inserted = wrapper.lifetimes[this].insert(&cache);
+      wrapper.caches[&cache] += inserted.second;
+    }
   };
 
   SingletonThreadLocal() = delete;
@@ -139,13 +142,12 @@ class SingletonThreadLocal {
   FOLLY_NOINLINE static Wrapper& getWrapper() { return *getWrapperTL(); }
 
   FOLLY_NOINLINE static Wrapper& getSlow(LocalCache& cache) {
-    auto& wrapper = getWrapper();
     if (threadlocal_detail::StaticMetaBase::dying()) {
-      return wrapper;
+      return getWrapper();
     }
     static thread_local LocalLifetime lifetime;
-    lifetime.track(cache, wrapper); // idempotent
-    return wrapper;
+    lifetime.track(cache); // idempotent
+    return FOLLY_LIKELY(!!cache.cache) ? *cache.cache : getWrapper();
   }
 
  public:
@@ -154,8 +156,7 @@ class SingletonThreadLocal {
       return getWrapper();
     }
     static thread_local LocalCache cache;
-    auto* wrapper = static_cast<Wrapper*>(cache.cache);
-    return FOLLY_LIKELY(!!wrapper) ? *wrapper : getSlow(cache);
+    return FOLLY_LIKELY(!!cache.cache) ? *cache.cache : getSlow(cache);
   }
 
   static T* try_get() {
@@ -212,12 +213,9 @@ class SingletonThreadLocal {
   }
 };
 
-FOLLY_PUSH_WARNING
-FOLLY_CLANG_DISABLE_WARNING("-Wglobal-constructors")
 template <typename T, typename Tag, typename Make, typename TLTag>
 detail::UniqueInstance SingletonThreadLocal<T, Tag, Make, TLTag>::unique{
     tag<SingletonThreadLocal>, tag<T, Tag>, tag<Make, TLTag>};
-FOLLY_POP_WARNING
 
 } // namespace folly
 
@@ -258,8 +256,6 @@ FOLLY_POP_WARNING
   struct __folly_reused_type_##name {                                          \
     __VA_ARGS__ object;                                                        \
   };                                                                           \
-  FOLLY_MAYBE_UNUSED ::folly::unsafe_for_async_usage                           \
-      __folly_reused_g_prevent_async_##name;                                   \
   auto& name =                                                                 \
       ::folly::SingletonThreadLocal<__folly_reused_type_##name>::get().object; \
   auto __folly_reused_g_##name = ::folly::makeGuard([&] { name.clear(); })

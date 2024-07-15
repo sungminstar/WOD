@@ -1,5 +1,4 @@
 import React from 'react';
-import {View} from 'react-native';
 import {createStackNavigator} from '@react-navigation/stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 
@@ -24,6 +23,13 @@ import VideoPlayer from './pages/VideoPlayer';
 import ChatList from './pages/ChatList';
 import AddText from './pages/AddText';
 
+import Signup from './pages/Signup';
+import Login from './pages/Login';
+
+import Profile from './pages/Profile';
+import CreateFeed from './pages/CreateFeed';
+import FeedDetailScreen from './pages/FeedDetailScreen';
+
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -40,6 +46,7 @@ const SearchTab = () => {
     </Stack.Navigator>
   );
 };
+
 const MainTab = () => {
   return (
     <Tab.Navigator
@@ -55,21 +62,26 @@ const MainTab = () => {
     </Tab.Navigator>
   );
 };
+
 const Router = () => {
   return (
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        // gestureEnabled: false
       }}>
       <Stack.Screen
         name="Splash"
         component={Splash}
         options={{animation: 'fade_from_bottom'}}
       />
+      <Stack.Screen name="Signup" component={Signup} />
+      <Stack.Screen name="Login" component={Login} />
+      <Stack.Screen name="HomeFeed" component={HomeFeed} />
       <Stack.Screen name="MainTab" component={MainTab} />
       <Stack.Screen name="Follower" component={Follower} />
       <Stack.Screen name="ChatScreen" component={ChatScreen} />
+      <Stack.Screen name="FeedDetailScreen" component={FeedDetailScreen} />
+
       <Stack.Screen name="AddText" component={AddText} />
     </Stack.Navigator>
   );

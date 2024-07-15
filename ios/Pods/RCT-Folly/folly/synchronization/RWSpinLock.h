@@ -161,7 +161,6 @@ pthread_rwlock_t Read        728698     24us       101ns     7.28ms     194us
 #include <thread>
 
 #include <folly/Likely.h>
-#include <folly/synchronization/Lock.h>
 
 namespace folly {
 
@@ -277,7 +276,7 @@ class RWSpinLock {
     // fetch_add is considerably (100%) faster than compare_exchange,
     // so here we are optimizing for the common (lock success) case.
     int32_t value = bits_.fetch_add(READER, std::memory_order_acquire);
-    if (FOLLY_UNLIKELY(value & (WRITER | UPGRADED))) {
+    if (UNLIKELY(value & (WRITER | UPGRADED))) {
       bits_.fetch_add(-READER, std::memory_order_release);
       return false;
     }
@@ -657,7 +656,7 @@ class RWTicketSpinLockT {
     QuarterInt val = __sync_fetch_and_add(&ticket.users, 1);
     while (val != load_acquire(&ticket.write)) {
       asm_volatile_pause();
-      if (FOLLY_UNLIKELY(++count > 1000)) {
+      if (UNLIKELY(++count > 1000)) {
         std::this_thread::yield();
       }
     }
@@ -709,7 +708,7 @@ class RWTicketSpinLockT {
     uint_fast32_t count = 0;
     while (!LIKELY(try_lock_shared())) {
       asm_volatile_pause();
-      if (FOLLY_UNLIKELY((++count & 1023) == 0)) {
+      if (UNLIKELY((++count & 1023) == 0)) {
         std::this_thread::yield();
       }
     }

@@ -39,7 +39,6 @@
 #include <folly/Likely.h>
 #include <folly/ScopeGuard.h>
 #include <folly/Traits.h>
-#include <folly/lang/CheckedMath.h>
 #include <folly/lang/Exception.h>
 #include <folly/memory/Malloc.h>
 
@@ -162,7 +161,7 @@ class fbvector {
     }
 
     void init(size_type n) {
-      if (FOLLY_UNLIKELY(n == 0)) {
+      if (UNLIKELY(n == 0)) {
         b_ = e_ = z_ = nullptr;
       } else {
         size_type sz = folly::goodMallocSize(n * sizeof(T)) / sizeof(T);
@@ -424,10 +423,7 @@ class fbvector {
   static void S_uninitialized_fill_n_a(
       Allocator& a, T* dest, size_type sz, Args&&... args) {
     auto b = dest;
-    T* e;
-    if (!folly::checked_add(&e, dest, sz)) {
-      throw_exception<std::length_error>("FBVector exceeded max size.");
-    }
+    auto e = dest + sz;
     auto rollback = makeGuard([&] { S_destroy_range_a(a, dest, b); });
     for (; b != e; ++b) {
       std::allocator_traits<Allocator>::construct(
@@ -439,19 +435,12 @@ class fbvector {
   // optimized
   static void S_uninitialized_fill_n(T* dest, size_type n) {
     if (folly::IsZeroInitializable<T>::value) {
-      if (FOLLY_LIKELY(n != 0)) {
-        T* sz;
-        if (!folly::checked_add(&sz, dest, n)) {
-          throw_exception<std::length_error>("FBVector exceeded max size.");
-        }
+      if (LIKELY(n != 0)) {
         std::memset((void*)dest, 0, sizeof(T) * n);
       }
     } else {
       auto b = dest;
-      T* e;
-      if (!folly::checked_add(&e, dest, n)) {
-        throw_exception<std::length_error>("FBVector exceeded max size.");
-      }
+      auto e = dest + n;
       auto rollback = makeGuard([&] {
         --b;
         for (; b >= dest; --b) {
@@ -467,10 +456,7 @@ class fbvector {
 
   static void S_uninitialized_fill_n(T* dest, size_type n, const T& value) {
     auto b = dest;
-    T* e;
-    if (!folly::checked_add(&e, dest, n)) {
-      throw_exception<std::length_error>("FBVector exceeded max size.");
-    }
+    auto e = dest + n;
     auto rollback = makeGuard([&] { S_destroy_range(dest, b); });
     for (; b != e; ++b) {
       S_construct(b, value);
@@ -750,7 +736,7 @@ class fbvector {
   ~fbvector() = default; // the cleanup occurs in impl_
 
   fbvector& operator=(const fbvector& other) {
-    if (FOLLY_UNLIKELY(this == &other)) {
+    if (UNLIKELY(this == &other)) {
       return *this;
     }
 
@@ -768,7 +754,7 @@ class fbvector {
   }
 
   fbvector& operator=(fbvector&& other) {
-    if (FOLLY_UNLIKELY(this == &other)) {
+    if (UNLIKELY(this == &other)) {
       return *this;
     }
     moveFrom(std::move(other), moveIsSwap());
@@ -889,7 +875,7 @@ class fbvector {
     return dataIsInternal(t);
   }
   bool dataIsInternal(const T& t) {
-    return FOLLY_UNLIKELY(
+    return UNLIKELY(
         impl_.b_ <= std::addressof(t) && std::addressof(t) < impl_.e_);
   }
 
@@ -1055,7 +1041,7 @@ class fbvector {
     return impl_.b_[n];
   }
   const_reference at(size_type n) const {
-    if (FOLLY_UNLIKELY(n >= size())) {
+    if (UNLIKELY(n >= size())) {
       throw_exception<std::out_of_range>(
           "fbvector: index is greater than size.");
     }
@@ -1705,6 +1691,6 @@ void erase(fbvector<T, A>& v, U value) {
 
 template <class T, class A, class Predicate>
 void erase_if(fbvector<T, A>& v, Predicate predicate) {
-  v.erase(std::remove_if(v.begin(), v.end(), std::ref(predicate)), v.end());
+  v.erase(std::remove_if(v.begin(), v.end(), predicate), v.end());
 }
 } // namespace folly

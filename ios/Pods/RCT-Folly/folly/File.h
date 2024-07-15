@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-//
-// Docs: https://fburl.com/fbcref_file
-//
-
 #pragma once
 
 #include <fcntl.h>
@@ -31,28 +27,23 @@
 #include <folly/Expected.h>
 #include <folly/Portability.h>
 #include <folly/Range.h>
-#include <folly/portability/Fcntl.h>
 #include <folly/portability/Unistd.h>
 
 namespace folly {
 
 /**
  * A File represents an open file.
- * @class folly::File
- * @refcode folly/docs/examples/folly/File.cpp
  */
 class File {
  public:
   /**
    * Creates an empty File object, for late initialization.
    */
-  constexpr File() noexcept : fd_(-1), ownsFd_(false) {}
+  File() noexcept;
 
   /**
    * Create a File object from an existing file descriptor.
-   *
-   * @param fd Existing file descriptor
-   * @param ownsFd Takes ownership of the file descriptor if ownsFd is true.
+   * Takes ownership of the file descriptor if ownsFd is true.
    */
   explicit File(int fd, bool ownsFd = false) noexcept;
 
@@ -139,16 +130,14 @@ class File {
   File(File&&) noexcept;
   File& operator=(File&&);
 
-  /**
-   * FLOCK (INTERPROCESS) LOCKS
-   *
-   * NOTE THAT THESE LOCKS ARE flock() LOCKS.  That is, they may only be used
-   * for inter-process synchronization -- an attempt to acquire a second lock
-   * on the same file descriptor from the same process may succeed.  Attempting
-   * to acquire a second lock on a different file descriptor for the same file
-   * should fail, but some systems might implement flock() using fcntl() locks,
-   * in which case it will succeed.
-   */
+  // FLOCK (INTERPROCESS) LOCKS
+  //
+  // NOTE THAT THESE LOCKS ARE flock() LOCKS.  That is, they may only be used
+  // for inter-process synchronization -- an attempt to acquire a second lock
+  // on the same file descriptor from the same process may succeed.  Attempting
+  // to acquire a second lock on a different file descriptor for the same file
+  // should fail, but some systems might implement flock() using fcntl() locks,
+  // in which case it will succeed.
   void lock();
   bool try_lock();
   void unlock();
@@ -169,9 +158,6 @@ class File {
   bool ownsFd_;
 };
 
-/**
- * Swaps the file descriptors and ownership
- */
 void swap(File& a, File& b) noexcept;
 
 } // namespace folly

@@ -15,13 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 NSData *SRRandomData(NSUInteger length)
 {
-    NSMutableData *_Nullable data = [NSMutableData dataWithLength:length];
-    if (data == nil) {
-        [NSException raise:NSInternalInconsistencyException format:@"Failed to allocate random data"];
-    }
-    
+    NSMutableData *data = [NSMutableData dataWithLength:length];
     int result = SecRandomCopyBytes(kSecRandomDefault, data.length, data.mutableBytes);
-    if (result != errSecSuccess) {
+    if (result != 0) {
         [NSException raise:NSInternalInconsistencyException format:@"Failed to generate random bytes with OSStatus: %d", result];
     }
     return data;

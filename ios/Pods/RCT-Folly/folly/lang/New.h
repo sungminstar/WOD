@@ -35,21 +35,7 @@ namespace folly {
 #define FOLLY_DETAIL_LANG_NEW_IMPL_D ::operator delete
 #endif
 
-#if defined(__cpp_aligned_new) && __cpp_aligned_new >= 201606
-#define FOLLY_DETAIL_LANG_NEW_HAVE_AN 1
-#else
-#define FOLLY_DETAIL_LANG_NEW_HAVE_AN 0
-#endif
-
-#if defined(__cpp_sized_deallocation) && __cpp_sized_deallocation >= 201309L
-#define FOLLY_DETAIL_LANG_NEW_HAVE_SD 1
-#elif defined(_CPPLIB_VER) && !__clang__
-#define FOLLY_DETAIL_LANG_NEW_HAVE_SD 1
-#else
-#define FOLLY_DETAIL_LANG_NEW_HAVE_SD 0
-#endif
-
-#if FOLLY_DETAIL_LANG_NEW_HAVE_AN
+#if __cpp_aligned_new >= 201606 || _CPPLIB_VER
 using std::align_val_t;
 #else
 enum class align_val_t : std::size_t {};
@@ -58,8 +44,7 @@ enum class align_val_t : std::size_t {};
 //  operator_new
 struct operator_new_fn {
   FOLLY_NODISCARD FOLLY_ERASE void* operator()( //
-      std::size_t const s) const //
-      noexcept(noexcept(::operator new(0))) {
+      std::size_t const s) const {
     return FOLLY_DETAIL_LANG_NEW_IMPL_N(s);
   }
   FOLLY_NODISCARD FOLLY_ERASE void* operator()( //
@@ -69,9 +54,8 @@ struct operator_new_fn {
   }
   FOLLY_NODISCARD FOLLY_ERASE void* operator()( //
       std::size_t const s,
-      FOLLY_MAYBE_UNUSED align_val_t const a) const
-      noexcept(noexcept(::operator new(0))) {
-#if FOLLY_DETAIL_LANG_NEW_HAVE_AN
+      FOLLY_MAYBE_UNUSED align_val_t const a) const {
+#if __cpp_aligned_new >= 201606 || _CPPLIB_VER
     return FOLLY_DETAIL_LANG_NEW_IMPL_N(s, a);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_N(s);
@@ -81,7 +65,7 @@ struct operator_new_fn {
       std::size_t const s,
       FOLLY_MAYBE_UNUSED align_val_t const a,
       std::nothrow_t const&) const noexcept {
-#if FOLLY_DETAIL_LANG_NEW_HAVE_AN
+#if __cpp_aligned_new >= 201606 || _CPPLIB_VER
     return FOLLY_DETAIL_LANG_NEW_IMPL_N(s, a, std::nothrow);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_N(s, std::nothrow);
@@ -99,7 +83,7 @@ struct operator_delete_fn {
   FOLLY_ERASE void operator()( //
       void* const p,
       FOLLY_MAYBE_UNUSED std::size_t const s) const noexcept {
-#if FOLLY_DETAIL_LANG_NEW_HAVE_SD
+#if __cpp_sized_deallocation >= 201309L || (_CPPLIB_VER && !__clang__)
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p, s);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p);
@@ -108,7 +92,7 @@ struct operator_delete_fn {
   FOLLY_ERASE void operator()( //
       void* const p,
       FOLLY_MAYBE_UNUSED align_val_t const a) const noexcept {
-#if FOLLY_DETAIL_LANG_NEW_HAVE_AN
+#if __cpp_aligned_new >= 201606 || _CPPLIB_VER
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p, a);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p);
@@ -118,14 +102,14 @@ struct operator_delete_fn {
       void* const p,
       FOLLY_MAYBE_UNUSED std::size_t const s,
       FOLLY_MAYBE_UNUSED align_val_t const a) const noexcept {
-#if FOLLY_DETAIL_LANG_NEW_HAVE_AN
-#if FOLLY_DETAIL_LANG_NEW_HAVE_SD
+#if __cpp_aligned_new >= 201606 || _CPPLIB_VER
+#if __cpp_sized_deallocation >= 201309L || (_CPPLIB_VER && !__clang__)
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p, s, a);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p, a);
 #endif
 #else
-#if FOLLY_DETAIL_LANG_NEW_HAVE_SD
+#if __cpp_sized_deallocation >= 201309L || (_CPPLIB_VER && !__clang__)
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p, s);
 #else
     return FOLLY_DETAIL_LANG_NEW_IMPL_D(p);

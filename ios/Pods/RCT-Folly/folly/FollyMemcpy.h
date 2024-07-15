@@ -16,10 +16,9 @@
 
 // @author: Logan Evans <lpe@fb.com>
 
-#include <cstddef>
+#include <stdlib.h>
 
-namespace folly {
-
-extern "C" void* __folly_memcpy(void* dst, const void* src, std::size_t size);
-
-} // namespace folly
+extern "C" {
+void* __folly_memcpy(
+    void* __restrict dst, const void* __restrict src, size_t size);
+}

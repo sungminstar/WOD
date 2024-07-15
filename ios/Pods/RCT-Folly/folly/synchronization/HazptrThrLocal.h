@@ -96,7 +96,7 @@ class hazptr_tc {
   }
 
   FOLLY_ALWAYS_INLINE hazptr_rec<Atom>* try_get() noexcept {
-    if (FOLLY_LIKELY(count_ > 0)) {
+    if (LIKELY(count_ > 0)) {
       auto hprec = entry_[--count_].get();
       return hprec;
     }
@@ -104,7 +104,7 @@ class hazptr_tc {
   }
 
   FOLLY_ALWAYS_INLINE bool try_put(hazptr_rec<Atom>* hprec) noexcept {
-    if (FOLLY_LIKELY(count_ < capacity())) {
+    if (LIKELY(count_ < capacity())) {
       entry_[count_++].fill(hprec);
       return true;
     }

@@ -19,10 +19,6 @@
 #include <fcntl.h>
 #include <cerrno>
 
-#ifdef __EMSCRIPTEN__
-#include <cassert>
-#endif
-
 #include <cstddef>
 #include <stdexcept>
 
@@ -39,18 +35,14 @@ extern "C" FOLLY_ATTR_WEAK int recvmmsg(
     int sockfd,
     struct mmsghdr* msgvec,
     unsigned int vlen,
-#if defined(__EMSCRIPTEN__)
     unsigned int flags,
-#else
-    int flags,
-#endif
     struct timespec* timeout);
 #else
 static int (*recvmmsg)(
     int sockfd,
     struct mmsghdr* msgvec,
     unsigned int vlen,
-    int flags,
+    unsigned int flags,
     struct timespec* timeout) = nullptr;
 #endif // FOLLY_HAVE_WEAK_SYMBOLS
 #endif // FOLLY_HAVE_RECVMMSG
@@ -69,8 +61,7 @@ static struct WinSockInit {
   ~WinSockInit() { WSACleanup(); }
 } winsockInit;
 
-static int wsa_error_translator_base(
-    NetworkSocket, intptr_t, intptr_t, int wsaErr) {
+int translate_wsa_error(int wsaErr) {
   switch (wsaErr) {
     case WSAEWOULDBLOCK:
       return EAGAIN;
@@ -78,43 +69,17 @@ static int wsa_error_translator_base(
       return wsaErr;
   }
 }
-
-wsa_error_translator_ptr wsa_error_translator = wsa_error_translator_base;
-
-#define translate_wsa_error(e, s, f, r) \
-  wsa_error_translator(                 \
-      s, reinterpret_cast<intptr_t>(f), static_cast<intptr_t>(r), e)
-
 #endif
 
 template <class R, class F, class... Args>
 static R wrapSocketFunction(F f, NetworkSocket s, Args... args) {
   R ret = f(s.data, args...);
 #ifdef _WIN32
-  errno = translate_wsa_error(WSAGetLastError(), s, f, ret);
+  errno = translate_wsa_error(WSAGetLastError());
 #endif
   return ret;
 }
 } // namespace
-
-#ifdef _WIN32
-void set_wsa_error_translator(
-    wsa_error_translator_ptr translator,
-    wsa_error_translator_ptr* previousOut) {
-  // Do an atomic swap of the error translator, ensuring we've filled in the
-  // previous one first so they can be safely daisy changed/called, e.g.
-  // translator may want to call the previous one and a call to it may come in
-  // even before we return.
-  PVOID result = nullptr;
-  do {
-    *previousOut = wsa_error_translator;
-    result = InterlockedCompareExchangePointer(
-        reinterpret_cast<PVOID volatile*>(&wsa_error_translator),
-        reinterpret_cast<PVOID>(translator),
-        reinterpret_cast<PVOID>(*previousOut));
-  } while (result != reinterpret_cast<PVOID>(*previousOut));
-}
-#endif
 
 NetworkSocket accept(NetworkSocket s, sockaddr* addr, socklen_t* addrlen) {
 #if defined(__EMSCRIPTEN__)
@@ -268,7 +233,7 @@ ssize_t recv(NetworkSocket s, void* buf, size_t len, int flags) {
 
     u_long pendingRead = 0;
     if (ioctlsocket(s.data, FIONREAD, &pendingRead)) {
-      errno = translate_wsa_error(WSAGetLastError(), s, ::ioctlsocket, -1);
+      errno = translate_wsa_error(WSAGetLastError());
       return -1;
     }
 
@@ -329,23 +294,9 @@ ssize_t recvfrom(
         nullptr,
         nullptr);
 
-    // Attempt to disable ICMP behavior which kills the socket.
-    BOOL connReset = false;
-    DWORD bytesReturned = 0;
-    WSAIoctl(
-        h,
-        SIO_UDP_CONNRESET,
-        &connReset,
-        sizeof(connReset),
-        nullptr,
-        0,
-        &bytesReturned,
-        nullptr,
-        nullptr);
-
     DWORD bytesReceived;
     int res = WSARecvMsg(h, &wMsg, &bytesReceived, nullptr, nullptr);
-    errno = translate_wsa_error(WSAGetLastError(), s, WSARecvMsg, res);
+    errno = translate_wsa_error(WSAGetLastError());
     if (res == 0) {
       return bytesReceived;
     }
@@ -372,9 +323,13 @@ ssize_t recvmsg(NetworkSocket s, msghdr* message, int flags) {
   (void)flags;
   SOCKET h = s.data;
 
+  // Don't currently support the name translation.
+  if (message->msg_name != nullptr || message->msg_namelen != 0) {
+    return (ssize_t)-1;
+  }
   WSAMSG msg;
-  msg.name = (LPSOCKADDR)message->msg_name;
-  msg.namelen = message->msg_namelen;
+  msg.name = nullptr;
+  msg.namelen = 0;
   msg.Control.buf = (CHAR*)message->msg_control;
   msg.Control.len = (ULONG)message->msg_controllen;
   msg.dwFlags = 0;
@@ -403,23 +358,9 @@ ssize_t recvmsg(NetworkSocket s, msghdr* message, int flags) {
       nullptr,
       nullptr);
 
-  // Attempt to disable ICMP behavior which kills the socket.
-  BOOL connReset = false;
-  DWORD bytesReturned = 0;
-  WSAIoctl(
-      h,
-      SIO_UDP_CONNRESET,
-      &connReset,
-      sizeof(connReset),
-      nullptr,
-      0,
-      &bytesReturned,
-      nullptr,
-      nullptr);
-
   DWORD bytesReceived;
   int res = WSARecvMsg(h, &msg, &bytesReceived, nullptr, nullptr);
-  errno = translate_wsa_error(WSAGetLastError(), s, WSARecvMsg, res);
+  errno = translate_wsa_error(WSAGetLastError());
   return res == 0 ? (ssize_t)bytesReceived : -1;
 #elif defined(__EMSCRIPTEN__)
   throw std::logic_error("Not implemented!");
@@ -470,11 +411,14 @@ ssize_t send(NetworkSocket s, const void* buf, size_t len, int flags) {
 #endif
 }
 
-FOLLY_MAYBE_UNUSED static ssize_t fakeSendmsg(
-    FOLLY_MAYBE_UNUSED NetworkSocket socket,
-    FOLLY_MAYBE_UNUSED const msghdr* message) {
+ssize_t sendmsg(NetworkSocket socket, const msghdr* message, int flags) {
 #ifdef _WIN32
+  (void)flags;
   SOCKET h = socket.data;
+
+  // Unfortunately, WSASendMsg requires the socket to have been opened
+  // as either SOCK_DGRAM or SOCK_RAW, but sendmsg has no such requirement,
+  // so we have to implement it based on send instead :(
   ssize_t bytesSent = 0;
   for (size_t i = 0; i < message->msg_iovlen; i++) {
     int r = -1;
@@ -494,7 +438,7 @@ FOLLY_MAYBE_UNUSED static ssize_t fakeSendmsg(
           message->msg_flags);
     }
     if (r == -1 || size_t(r) != message->msg_iov[i].iov_len) {
-      errno = translate_wsa_error(WSAGetLastError(), socket, fakeSendmsg, r);
+      errno = translate_wsa_error(WSAGetLastError());
       if (WSAGetLastError() == WSAEWOULDBLOCK && bytesSent > 0) {
         return bytesSent;
       }
@@ -503,72 +447,6 @@ FOLLY_MAYBE_UNUSED static ssize_t fakeSendmsg(
     bytesSent += r;
   }
   return bytesSent;
-#else
-  throw std::logic_error("Not implemented!");
-#endif
-}
-
-#ifdef _WIN32
-FOLLY_MAYBE_UNUSED ssize_t wsaSendMsgDirect(
-    FOLLY_MAYBE_UNUSED NetworkSocket socket, FOLLY_MAYBE_UNUSED WSAMSG* msg) {
-  // WSASendMsg freaks out if this pointer is not set to null but length is 0.
-  if (msg->Control.len == 0) {
-    msg->Control.buf = nullptr;
-  }
-  SOCKET h = socket.data;
-  DWORD bytesSent;
-  auto ret = WSASendMsg(h, msg, 0, &bytesSent, nullptr, nullptr);
-  errno = translate_wsa_error(WSAGetLastError(), socket, WSASendMsg, ret);
-  return ret == 0 ? (ssize_t)bytesSent : -1;
-}
-#endif
-
-FOLLY_MAYBE_UNUSED static ssize_t wsaSendMsg(
-    FOLLY_MAYBE_UNUSED NetworkSocket socket,
-    FOLLY_MAYBE_UNUSED const msghdr* message,
-    FOLLY_MAYBE_UNUSED int flags) {
-#ifdef _WIN32
-  // Translate msghdr to WSAMSG.
-  WSAMSG msg;
-  msg.name = (LPSOCKADDR)message->msg_name;
-  msg.namelen = message->msg_namelen;
-  msg.Control.buf = (CHAR*)message->msg_control;
-  msg.Control.len = (ULONG)message->msg_controllen;
-  msg.dwFlags = flags;
-  msg.dwBufferCount = (DWORD)message->msg_iovlen;
-  msg.lpBuffers = new WSABUF[message->msg_iovlen];
-  SCOPE_EXIT { delete[] msg.lpBuffers; };
-  for (size_t i = 0; i < message->msg_iovlen; i++) {
-    msg.lpBuffers[i].buf = (CHAR*)message->msg_iov[i].iov_base;
-    msg.lpBuffers[i].len = (ULONG)message->msg_iov[i].iov_len;
-  }
-  return wsaSendMsgDirect(socket, &msg);
-#else
-  throw std::logic_error("Not implemented!");
-#endif
-}
-
-ssize_t sendmsg(NetworkSocket socket, const msghdr* message, int flags) {
-#ifdef _WIN32
-
-  // Check socket type to see if WSASendMsg usage is a go.
-  DWORD socketType = 0;
-  auto len = sizeof(socketType);
-  auto ret =
-      getsockopt(socket, SOL_SOCKET, SO_TYPE, &socketType, (socklen_t*)&len);
-  if (ret != 0) {
-    errno = translate_wsa_error(WSAGetLastError(), socket, getsockopt, ret);
-    return ret;
-  }
-
-  if (socketType == SOCK_DGRAM || socketType == SOCK_RAW) {
-    return wsaSendMsg(socket, message, flags);
-  } else {
-    // Unfortunately, WSASendMsg requires the socket to have been opened
-    // as either SOCK_DGRAM or SOCK_RAW, but sendmsg has no such requirement,
-    // so we have to implement it based on send instead :(
-    return fakeSendmsg(socket, message);
-  }
 #elif defined(__EMSCRIPTEN__)
   throw std::logic_error("Not implemented!");
 #else
@@ -628,6 +506,15 @@ int setsockopt(
     const void* optval,
     socklen_t optlen) {
 #ifdef _WIN32
+  if (optname == SO_REUSEADDR) {
+    // We don't have an equivelent to the Linux & OSX meaning of this
+    // on Windows, so ignore it.
+    return 0;
+  } else if (optname == SO_REUSEPORT) {
+    // Windows's SO_REUSEADDR option is closer to SO_REUSEPORT than
+    // it is to the Linux & OSX meaning of SO_REUSEADDR.
+    return -1;
+  }
   return wrapSocketFunction<int>(
       ::setsockopt, s, level, optname, (char*)optval, optlen);
 #elif defined(__EMSCRIPTEN__)
@@ -819,95 +706,6 @@ int set_socket_close_on_exec(NetworkSocket s) {
   throw std::logic_error("Not implemented!");
 #else
   return fcntl(s.data, F_SETFD, FD_CLOEXEC);
-#endif
-}
-
-void Msgheader::setName(sockaddr_storage* addrStorage, size_t len) {
-#ifdef _WIN32
-  msg_.name = reinterpret_cast<LPSOCKADDR>(addrStorage);
-  msg_.namelen = len;
-#elif __EMSCRIPTEN__
-  assert(false); // not supported in emcc
-#else
-  msg_.msg_name = reinterpret_cast<void*>(addrStorage);
-  msg_.msg_namelen = len;
-#endif
-}
-
-void Msgheader::setIovecs(const struct iovec* vec, size_t iovec_len) {
-#ifdef _WIN32
-  msg_.dwBufferCount = (DWORD)iovec_len;
-  wsaBufs_.reset(new WSABUF[iovec_len]);
-  msg_.lpBuffers = wsaBufs_.get();
-  for (size_t i = 0; i < iovec_len; i++) {
-    msg_.lpBuffers[i].buf = (CHAR*)vec[i].iov_base;
-    msg_.lpBuffers[i].len = (ULONG)vec[i].iov_len;
-  }
-#else
-  msg_.msg_iov = const_cast<struct iovec*>(vec);
-  msg_.msg_iovlen = iovec_len;
-#endif
-}
-
-void Msgheader::setCmsgPtr(char* ctrlBuf) {
-#ifdef _WIN32
-  msg_.Control.buf = ctrlBuf;
-#else
-  msg_.msg_control = ctrlBuf;
-#endif
-}
-
-void Msgheader::setCmsgLen(size_t len) {
-#ifdef _WIN32
-  msg_.Control.len = len;
-#else
-  msg_.msg_controllen = len;
-#endif
-}
-
-void Msgheader::setFlags(int flags) {
-#ifdef _WIN32
-  msg_.dwFlags = flags;
-#else
-  msg_.msg_flags = flags;
-#endif
-}
-
-void Msgheader::incrCmsgLen(size_t val) {
-#ifdef _WIN32
-  msg_.Control.len += WSA_CMSG_SPACE(val);
-#elif __EMSCRIPTEN__
-  assert(false); // not supported in emcc
-#else
-  msg_.msg_controllen += CMSG_SPACE(val);
-#endif
-}
-
-XPLAT_CMSGHDR* Msgheader::getFirstOrNextCmsgHeader(XPLAT_CMSGHDR* cm) {
-  return cm ? cmsgNextHrd(cm) : cmsgFirstHrd();
-}
-
-XPLAT_MSGHDR* Msgheader::getMsg() {
-  return &msg_;
-}
-
-XPLAT_CMSGHDR* Msgheader::cmsgNextHrd(XPLAT_CMSGHDR* cm) {
-#ifdef _WIN32
-  return WSA_CMSG_NXTHDR(&msg_, cm);
-#elif __EMSCRIPTEN__
-  assert(false); // not supported in emcc
-#else
-  return CMSG_NXTHDR(&msg_, cm);
-#endif
-}
-
-XPLAT_CMSGHDR* Msgheader::cmsgFirstHrd() {
-#ifdef _WIN32
-  return WSA_CMSG_FIRSTHDR(&msg_);
-#elif __EMSCRIPTEN__
-  assert(false); // not supported in emcc
-#else
-  return CMSG_FIRSTHDR(&msg_);
 #endif
 }
 } // namespace netops

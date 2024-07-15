@@ -11,7 +11,6 @@
 #endif
 
 #import "React/RCTActivityIndicatorViewComponentView.h"
-#import "React/RCTDebuggingOverlayComponentView.h"
 #import "React/RCTImageComponentView.h"
 #import "React/RCTInputAccessoryComponentView.h"
 #import "React/RCTInputAccessoryContentView.h"

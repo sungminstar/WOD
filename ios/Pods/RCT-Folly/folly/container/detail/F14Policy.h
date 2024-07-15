@@ -107,7 +107,7 @@ template <
     typename KeyEqualOrVoid,
     typename AllocOrVoid,
     typename ItemType>
-struct FOLLY_MSVC_DECLSPEC(empty_bases) BasePolicy
+struct BasePolicy
     : private ObjectHolder<
           'H',
           Defaulted<HasherOrVoid, DefaultHasher<KeyType>>>,
@@ -154,17 +154,6 @@ struct FOLLY_MSVC_DECLSPEC(empty_bases) BasePolicy
   struct AllocIsAlwaysEqual<A, typename A::is_always_equal>
       : A::is_always_equal {};
 
-  // Detection for folly_assume_32bit_hash
-
-  template <typename Hasher, typename Void = void>
-  struct ShouldAssume32BitHash : bool_constant<!sizeof(Hasher)> {};
-
-  template <typename Hasher>
-  struct ShouldAssume32BitHash<
-      Hasher,
-      void_t<typename Hasher::folly_assume_32bit_hash>>
-      : bool_constant<Hasher::folly_assume_32bit_hash::value> {};
-
  public:
   static constexpr bool kAllocIsAlwaysEqual = AllocIsAlwaysEqual<Alloc>::value;
 
@@ -178,10 +167,6 @@ struct FOLLY_MSVC_DECLSPEC(empty_bases) BasePolicy
 
   static constexpr bool isAvalanchingHasher() {
     return IsAvalanchingHasher<Hasher, Key>::value;
-  }
-
-  static constexpr bool shouldAssume32BitHash() {
-    return ShouldAssume32BitHash<Hasher>::value;
   }
 
   //////// internal types and constants
@@ -952,7 +937,7 @@ class VectorContainerIterator : public BaseIter<ValuePtr, uint32_t> {
   pointer operator->() const { return current_; }
 
   VectorContainerIterator& operator++() {
-    if (FOLLY_UNLIKELY(current_ == lowest_)) {
+    if (UNLIKELY(current_ == lowest_)) {
       current_ = nullptr;
     } else {
       --current_;
@@ -1451,8 +1436,7 @@ class VectorContainerPolicy : public BasePolicy<
   // Iterator stuff
 
   Iter linearBegin(std::size_t size) const {
-    return size > 0 ? Iter{values_ + size - 1, values_}
-                    : Iter{nullptr, nullptr};
+    return Iter{(size > 0 ? values_ + size - 1 : nullptr), values_};
   }
 
   Iter linearEnd() const { return Iter{nullptr, nullptr}; }

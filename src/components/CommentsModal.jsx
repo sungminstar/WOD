@@ -12,8 +12,9 @@ import {
   Keyboard,
 } from 'react-native';
 import Modal from 'react-native-modal';
-import Toast from '../components/Toast'; // Toast 컴포넌트 import
-import {useNavigation} from '@react-navigation/native'; // useNavigation 훅 import
+import Toast from '../components/Toast'; // Assuming you have a Toast component
+import axios from 'axios';
+import {useNavigation} from '@react-navigation/native';
 
 const more = require('../assets/icons/more.png');
 const addButton = require('../assets/icons/bottomtab/add_circle_off.png');
@@ -61,22 +62,47 @@ const CommentItem = ({item, index}) => {
   );
 };
 
-const CommentsModal = ({isVisible, setIsVisible}) => {
+const CommentsModal = ({isVisible, setIsVisible, feedId}) => {
   const [textValue, setTextValue] = useState('');
   const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = useWindowDimensions();
-  const navigation = useNavigation(); // navigation 객체 가져오기
-  const [toastVisible, setToastVisible] = useState(false); // 토스트 가시성 상태 관리
+  const navigation = useNavigation();
+  const [toastVisible, setToastVisible] = useState(false);
 
   const renderItem = useCallback(
     ({item, index}) => <CommentItem item={item} index={index} />,
     [],
   );
 
-  const commetUploadToast = () => {
-    setToastVisible(true); // 토스트 메시지 보이기
+  const submitComment = async () => {
+    try {
+      const response = await axios.post(
+        `http://13.209.27.220:8080/feed/${feedId}/reply`,
+        {
+          reply: textValue,
+        },
+      );
+      if (response.status === 200) {
+        commetUploadToast();
+        setTextValue(''); // Clear input after successful submission
+        setIsVisible(false); // Hide the modal after submission (optional)
+      } else {
+        throw new Error('Failed to submit comment');
+      }
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+      // Handle specific error messages or show a general error toast
+      // For example:
+      setToastVisible(true);
+      setTimeout(() => {
+        setToastVisible(false);
+      }, 2000);
+    }
+  };
 
+  const commetUploadToast = () => {
+    setToastVisible(true);
     setTimeout(() => {
-      setToastVisible(false); // 토스트 메시지 숨기기
+      setToastVisible(false);
     }, 2000);
   };
 
@@ -93,11 +119,11 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
       style={{margin: 0, alignItems: 'center', justifyContent: 'flex-end'}}
       onBackdropPress={() => {
         Keyboard.dismiss();
-        setIsVisible(!isVisible);
+        setIsVisible(false);
       }}
       onBackButtonPress={() => {
         Keyboard.dismiss();
-        setIsVisible(!isVisible);
+        setIsVisible(false);
       }}
       hideModalContentWhileAnimating>
       <KeyboardAvoidingView
@@ -139,8 +165,7 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
               showsVerticalScrollIndicator={false}
               data={dummy_comments}
               renderItem={renderItem}
-              keyExtractor={item => item.id}
-              // ListEmptyComponent={}
+              keyExtractor={item => item.id.toString()}
               ItemSeparatorComponent={() => <View style={{height: 32}} />}
               style={{flex: 1}}
             />
@@ -186,7 +211,7 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
               />
             </View>
             <TouchableOpacity
-              onPress={commetUploadToast}
+              onPress={submitComment}
               style={{
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -196,7 +221,6 @@ const CommentsModal = ({isVisible, setIsVisible}) => {
             </TouchableOpacity>
           </View>
         </View>
-        {/* Toast 컴포넌트 */}
         {toastVisible && (
           <Toast
             message="Uploaded!"

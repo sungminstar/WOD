@@ -1,6 +1,0 @@
-module Pods_WOD_WODTests {
-  umbrella header "Pods-WOD-WODTests-umbrella.h"
-
-  export *
-  module * { export * }
-}

@@ -92,13 +92,13 @@ class DiscriminatedPtr {
    */
   template <typename T>
   T* get_nothrow() noexcept {
-    void* p = FOLLY_LIKELY(hasType<T>()) ? ptr() : nullptr;
+    void* p = LIKELY(hasType<T>()) ? ptr() : nullptr;
     return static_cast<T*>(p);
   }
 
   template <typename T>
   const T* get_nothrow() const noexcept {
-    const void* p = FOLLY_LIKELY(hasType<T>()) ? ptr() : nullptr;
+    const void* p = LIKELY(hasType<T>()) ? ptr() : nullptr;
     return static_cast<const T*>(p);
   }
 
@@ -110,7 +110,7 @@ class DiscriminatedPtr {
    */
   template <typename T>
   T* get() {
-    if (FOLLY_UNLIKELY(!hasType<T>())) {
+    if (UNLIKELY(!hasType<T>())) {
       throw std::invalid_argument("Invalid type");
     }
     return static_cast<T*>(ptr());
@@ -118,7 +118,7 @@ class DiscriminatedPtr {
 
   template <typename T>
   const T* get() const {
-    if (FOLLY_UNLIKELY(!hasType<T>())) {
+    if (UNLIKELY(!hasType<T>())) {
       throw std::invalid_argument("Invalid type");
     }
     return static_cast<const T*>(ptr());

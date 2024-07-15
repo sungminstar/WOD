@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   SafeAreaView,
   View,
@@ -7,8 +7,12 @@ import {
   TouchableOpacity,
   Dimensions,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
+import {useFocusEffect} from '@react-navigation/native';
+import axios from 'axios';
 import CommentsModal from '../components/CommentsModal';
+import {useNavigation} from '@react-navigation/native';
 
 const logo = require('../assets/icons/logo.png');
 const heart = require('../assets/icons/heart.png');
@@ -17,140 +21,74 @@ const more = require('../assets/icons/more.png');
 
 const {width} = Dimensions.get('window');
 
-const dummy_story = [
-  {
-    id: 1,
-    name: 'BONG',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: false,
-  },
-  {
-    id: 2,
-    name: 'Jeongtaeyoung_5812',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: false,
-  },
-  {
-    id: 3,
-    name: 'park_cha',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-  {
-    id: 4,
-    name: 'pig0321',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-  {
-    id: 5,
-    name: 'Pro_yagada',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-  {
-    id: 6,
-    name: 'Pro_yagada',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-  {
-    id: 7,
-    name: 'Pro_yagada',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-  {
-    id: 8,
-    name: 'Pro_yagada',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    isOpen: true,
-  },
-];
+const fetchFeedDetails = async feedId => {
+  try {
+    const response = await axios.get(
+      `http://13.209.27.220:8080/feed/${feedId}`,
+    );
+    if (response.status === 200 && response.data.success) {
+      return response.data.result; // 피드의 상세 정보가 담긴 데이터 반환
+    } else {
+      throw new Error('피드 상세 정보를 불러오지 못했습니다');
+    }
+  } catch (error) {
+    console.error('피드 상세 정보를 불러오는 중 오류 발생:', error);
+    throw error;
+  }
+};
 
-const dummy_feed = [
-  {
-    id: 1,
-    name: 'Jeongtaeyoung_5812',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    feedImg: [
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-    ],
-    contents: '내 마음...받아줘',
-    like: 37,
-    likeUsers: [1, 2, 3],
-  },
-  {
-    id: 2,
-    name: 'Jeongtaeyoung_5812',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    feedImg: [
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-    ],
-    contents: '내 마음...받아줘',
-    like: 37,
-    likeUsers: [1, 2, 3],
-  },
-  {
-    id: 3,
-    name: 'Jeongtaeyoung_5812',
-    profileImg: 'https://avatar.iran.liara.run/public',
-    feedImg: [
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-      'https://picsum.photos/400/400',
-    ],
-    contents: '내 마음...받아줘',
-    like: 37,
-    likeUsers: [1, 2, 3],
-  },
-];
+const fetchFeeds = async (setFeeds, setLoading) => {
+  setLoading(true);
+  try {
+    const response = await axios.get('http://13.209.27.220:8080/feed', {
+      params: {
+        page: 0,
+        pageSize: 10,
+      },
+    });
+
+    if (response.status === 200 && response.data.success) {
+      const feedItems = response.data.result.content;
+
+      // Log each feed item to the console
+      feedItems.forEach(feed => {
+        console.log('Uploaded feed:', feed);
+      });
+
+      setFeeds(feedItems);
+    } else {
+      console.error('피드 목록을 불러오지 못했습니다:', response.data.message);
+    }
+  } catch (error) {
+    console.error('피드 목록을 불러오는 중 오류 발생:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
 const HomeFeed = () => {
+  const [feeds, setFeeds] = useState([]);
   const [isVisible, setIsVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const navigation = useNavigation();
 
-  const renderStory = ({item, index}) => {
-    return (
-      <TouchableOpacity
-        style={index === 0 ? {marginHorizontal: 16} : {marginRight: 16}}>
-        <Image
-          source={{uri: item.profileImg}}
-          style={
-            item.isOpen
-              ? {width: 52, height: 52, marginBottom: 2}
-              : {
-                  width: 52,
-                  height: 52,
-                  marginBottom: 2,
-                  borderWidth: 2,
-                  borderColor: '#2A85FF',
-                  borderRadius: 26,
-                }
-          }
-        />
-        <Text
-          numberOfLines={1}
-          style={{
-            maxWidth: 52,
-            fontSize: 13,
-            fontWeight: '400',
-            lineHeight: 16.22,
-            color: '#4F4F4F',
-          }}>
-          {item.name}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
+  useFocusEffect(
+    useCallback(() => {
+      fetchFeeds(setFeeds, setLoading);
+    }, []),
+  );
 
-  const renderFeed = ({item, index}) => {
+  const renderFeed = ({item}) => {
+    const handleShowModal = async feedId => {
+      try {
+        const detailedFeed = await fetchFeedDetails(feedId);
+        navigation.navigate('FeedDetailScreen', {feed: detailedFeed});
+      } catch (error) {
+        console.error('피드 상세 정보를 불러오는 중 오류 발생:', error);
+        // 피드 상세 정보 불러오기 오류 처리
+      }
+    };
+
     return (
       <View style={{paddingVertical: 24}}>
         <View
@@ -165,21 +103,34 @@ const HomeFeed = () => {
             style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
             <Image
               source={{uri: item.profileImg}}
-              style={{width: 32, height: 32}}
+              style={{width: 32, height: 32, borderRadius: 16}}
             />
             <Text style={{fontSize: 16, fontWeight: '400', lineHeight: 19.97}}>
-              {item.name}
+              {item.nickname}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => handleShowModal(item.id)}>
             <Image source={more} style={{width: 24, height: 24}} />
           </TouchableOpacity>
         </View>
-        <Image
-          source={{uri: item.feedImg[0]}}
-          style={{width, height: width, marginBottom: 8}}
-          resizeMode="contain"
+        <FlatList
+          data={item.images}
+          keyExtractor={(image, index) => `image-${item.id}-${index}`}
+          renderItem={({item: imageUri}) => {
+            console.log('Image URI:', imageUri); // Logging inside the function body
+            return (
+              <Image
+                source={{uri: imageUri}}
+                style={{width, height: width, marginBottom: 8}}
+                resizeMode="contain"
+              />
+            );
+          }}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          pagingEnabled
         />
+
         <View
           style={{
             flexDirection: 'row',
@@ -192,56 +143,41 @@ const HomeFeed = () => {
             <TouchableOpacity>
               <Image source={heart} style={{width: 32, height: 32}} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsVisible(!isVisible)}>
+            <TouchableOpacity onPress={() => setIsVisible(true)}>
               <Image source={comment} style={{width: 32, height: 32}} />
             </TouchableOpacity>
           </View>
-          <Text>외 37명이 좋아합니다.</Text>
+          <Text>외 {item.emotions.total}명이 좋아합니다.</Text>
         </View>
-        <View style={{marginHorizontal: 16, gap: 4}}>
-          <Text>{item.name}</Text>
+        <View style={{marginHorizontal: 16, marginBottom: 16}}>
+          <Text style={{fontSize: 16, fontWeight: '600', marginBottom: 4}}>
+            {item.nickname}
+          </Text>
           <Text style={{fontWeight: '400', color: '#4F4F4F'}}>
-            {item.contents}
+            {item.content}
           </Text>
         </View>
       </View>
     );
   };
 
+  if (loading) {
+    return (
+      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={{flex: 1, backgroundColor: '#FFF'}}>
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: '#FFF',
-          marginBottom: 32,
-        }}>
-        <View
-          style={{
-            borderStyle: 'solid',
-            borderBottomWidth: 0.5,
-            borderLeftWidth: 0.5,
-            borderRightWidth: 0.5,
-            borderColor: '#EEE',
-          }}>
-          <View
-            style={{
-              padding: 16,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-            }}>
-            <Image source={logo} style={{width: 80.5, height: 22}} />
-          </View>
-          <FlatList
-            data={dummy_feed}
-            renderItem={renderFeed}
-            keyExtractor={item => item.id}
-            removeClippedSubviews
-            showsVerticalScrollIndicator={false}
-          />
-        </View>
-
+      <View style={{flex: 1, backgroundColor: '#FFF'}}>
+        <FlatList
+          data={feeds}
+          renderItem={renderFeed}
+          keyExtractor={item => item.id.toString()}
+          showsVerticalScrollIndicator={false}
+        />
         <CommentsModal isVisible={isVisible} setIsVisible={setIsVisible} />
       </View>
     </SafeAreaView>

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-//
-// Docs: https://fburl.com/fbcref_optional
-//
-
 #pragma once
 
 /*
@@ -58,7 +54,6 @@
  *  }
  */
 
-#include <cassert>
 #include <cstddef>
 #include <functional>
 #include <new>
@@ -66,7 +61,6 @@
 #include <type_traits>
 #include <utility>
 #if __cplusplus >= 201703L && __has_include(<optional>)
-#define FOLLY_HAS_STD_OPTIONAL
 #include <optional>
 #endif
 
@@ -81,7 +75,6 @@ template <class Value>
 class Optional;
 
 namespace detail {
-struct OptionalEmptyTag {};
 template <class Value>
 struct OptionalPromise;
 template <class Value>
@@ -105,10 +98,6 @@ class FOLLY_EXPORT OptionalEmptyException : public std::runtime_error {
       : std::runtime_error("Empty Optional cannot be unwrapped") {}
 };
 
-/**
- * Optional is superseded by std::optional. Now that the C++ has a standardized
- * implementation, Optional exists primarily for backward compatibility.
- */
 template <class Value>
 class Optional {
  public:
@@ -123,7 +112,6 @@ class Optional {
       !std::is_abstract<Value>::value,
       "Optional may not be used with abstract types");
 
-  /// Default-constructed Optionals are None.
   constexpr Optional() noexcept {}
 
   Optional(const Optional& src) noexcept(
@@ -153,13 +141,6 @@ class Optional {
     construct(newValue);
   }
 
-  /**
-   * Creates an Optional with a value, where that value is constructed in-place.
-   *
-   * The in_place_t argument exists so that values can be default constructed
-   * (i.e. have no arguments), since this would otherwise be confused with
-   * default-constructing an Optional, which in turn results in None.
-   */
   template <typename... Args>
   constexpr explicit Optional(in_place_t, Args&&... args) noexcept(
       std::is_nothrow_constructible<Value, Args...>::value)
@@ -183,8 +164,7 @@ class Optional {
   }
 
 // Conversions to ease migration to std::optional
-#ifdef FOLLY_HAS_STD_OPTIONAL
-  /// Allow construction of Optional from std::optional.
+#if __cplusplus >= 201703L && __has_include(<optional>)
   template <
       typename U,
       typename = std::enable_if_t<std::is_same_v<U, std::optional<Value>>>>
@@ -204,8 +184,6 @@ class Optional {
       construct(*newValue);
     }
   }
-  /// Allow implict cast to std::optional
-  /// @methodset Migration
   explicit operator std::optional<Value>() && noexcept(
       std::is_nothrow_move_constructible<Value>::value) {
     std::optional<Value> ret = storage_.hasValue
@@ -221,8 +199,6 @@ class Optional {
   }
 #endif
 
-  /// Set the Optional
-  /// @methodset Modifiers
   void assign(const None&) { reset(); }
 
   void assign(Optional&& src) {
@@ -260,7 +236,6 @@ class Optional {
     }
   }
 
-  /// @methodset Modifiers
   Optional& operator=(None) noexcept {
     reset();
     return *this;
@@ -284,8 +259,6 @@ class Optional {
     return *this;
   }
 
-  /// Construct a new value in the Optional, in-place.
-  /// @methodset Modifiers
   template <class... Args>
   Value& emplace(Args&&... args) {
     reset();
@@ -303,15 +276,10 @@ class Optional {
     return value();
   }
 
-  /// Set the Optional to None
-  /// @methodset Modifiers
   void reset() noexcept { storage_.clear(); }
 
-  /// Set the Optional to None
-  /// @methodset Modifiers
   void clear() noexcept { reset(); }
 
-  /// @methodset Modifiers
   void swap(Optional& that) noexcept(IsNothrowSwappable<Value>::value) {
     if (hasValue() && that.hasValue()) {
       using std::swap;
@@ -325,8 +293,6 @@ class Optional {
     }
   }
 
-  /// Get the value. Must have value.
-  /// @methodset Getters
   constexpr const Value& value() const& {
     require_value();
     return storage_.value;
@@ -347,8 +313,6 @@ class Optional {
     return std::move(storage_.value);
   }
 
-  /// Get the value by pointer; nullptr if None.
-  /// @methodset Getters
   const Value* get_pointer() const& {
     return storage_.hasValue ? &storage_.value : nullptr;
   }
@@ -357,32 +321,21 @@ class Optional {
   }
   Value* get_pointer() && = delete;
 
-  /// Does this Optional have a value.
-  /// @methodset Observers
   constexpr bool has_value() const noexcept { return storage_.hasValue; }
 
-  /// Does this Optional have a value.
-  /// @methodset Observers
   constexpr bool hasValue() const noexcept { return has_value(); }
 
-  /// Does this Optional have a value.
-  /// @methodset Observers
   constexpr explicit operator bool() const noexcept { return has_value(); }
 
-  /// Get the value. Must have value.
-  /// @methodset Getters
   constexpr const Value& operator*() const& { return value(); }
   constexpr Value& operator*() & { return value(); }
   constexpr const Value&& operator*() const&& { return std::move(value()); }
   constexpr Value&& operator*() && { return std::move(value()); }
 
-  /// Get the value. Must have value.
-  /// @methodset Getters
   constexpr const Value* operator->() const { return &value(); }
   constexpr Value* operator->() { return &value(); }
 
-  /// Return a copy of the value if set, or a given default if not.
-  /// @methodset Getters
+  // Return a copy of the value if set, or a given default if not.
   template <class U>
   constexpr Value value_or(U&& dflt) const& {
     if (storage_.hasValue) {
@@ -402,8 +355,6 @@ class Optional {
   }
 
  private:
-  friend struct detail::OptionalPromiseReturn<Value>;
-
   template <class T>
   friend constexpr Optional<std::decay_t<T>> make_optional(T&&);
   template <class T, class... Args>
@@ -424,12 +375,8 @@ class Optional {
   };
   template <typename... Args>
   constexpr Optional(PrivateConstructor, Args&&... args) noexcept(
-      std::is_nothrow_constructible<Value, Args&&...>::value) {
+      std::is_constructible<Value, Args&&...>::value) {
     construct(std::forward<Args>(args)...);
-  }
-  // for when coroutine promise return-object conversion is eager
-  explicit Optional(detail::OptionalEmptyTag, Optional*& pointer) noexcept {
-    pointer = this;
   }
 
   void require_value() const {
@@ -454,7 +401,7 @@ class Optional {
     bool hasValue;
 
     constexpr StorageTriviallyDestructible()
-        : emptyState(unsafe_default_initialized), hasValue{false} {}
+        : emptyState('\0'), hasValue{false} {}
     void clear() { hasValue = false; }
   };
 
@@ -465,7 +412,7 @@ class Optional {
     };
     bool hasValue;
 
-    FOLLY_CXX20_CONSTEXPR StorageNonTriviallyDestructible() : hasValue{false} {}
+    StorageNonTriviallyDestructible() : hasValue{false} {}
     ~StorageNonTriviallyDestructible() { clear(); }
 
     void clear() {
@@ -674,26 +621,15 @@ struct OptionalPromise;
 template <typename Value>
 struct OptionalPromiseReturn {
   Optional<Value> storage_;
-  Optional<Value>*& pointer_;
-
-  /* implicit */ OptionalPromiseReturn(OptionalPromise<Value>& p) noexcept
-      : pointer_{p.value_} {
-    pointer_ = &storage_;
+  OptionalPromise<Value>* promise_;
+  /* implicit */ OptionalPromiseReturn(OptionalPromise<Value>& promise) noexcept
+      : promise_(&promise) {
+    promise.value_ = &storage_;
   }
-  OptionalPromiseReturn(OptionalPromiseReturn const&) = delete;
-  // letting dtor be trivial makes the coroutine crash
-  // TODO: fix clang/llvm codegen
+  OptionalPromiseReturn(OptionalPromiseReturn&& that) noexcept
+      : OptionalPromiseReturn{*that.promise_} {}
   ~OptionalPromiseReturn() {}
-  /* implicit */ operator Optional<Value>() {
-    // handle both deferred and eager return-object conversion behaviors
-    // see docs for detect_promise_return_object_eager_conversion
-    if (folly::coro::detect_promise_return_object_eager_conversion()) {
-      assert(!storage_.has_value());
-      return Optional{OptionalEmptyTag{}, pointer_}; // eager
-    } else {
-      return std::move(storage_); // deferred
-    }
-  }
+  /* implicit */ operator Optional<Value>() & { return std::move(storage_); }
 };
 
 template <typename Value>
@@ -701,6 +637,10 @@ struct OptionalPromise {
   Optional<Value>* value_ = nullptr;
   OptionalPromise() = default;
   OptionalPromise(OptionalPromise const&) = delete;
+  // This should work regardless of whether the compiler generates:
+  //    folly::Optional<Value> retobj{ p.get_return_object(); } // MSVC
+  // or:
+  //    auto retobj = p.get_return_object(); // clang
   OptionalPromiseReturn<Value> get_return_object() noexcept { return *this; }
   coro::suspend_never initial_suspend() const noexcept { return {}; }
   coro::suspend_never final_suspend() const noexcept { return {}; }

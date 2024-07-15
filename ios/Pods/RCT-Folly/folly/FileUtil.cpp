@@ -31,9 +31,6 @@
 #include <folly/portability/SysStat.h>
 
 namespace folly {
-namespace {
-iovec getIOVecFor(ByteRange);
-} // namespace
 
 using namespace fileutil_detail;
 
@@ -207,51 +204,34 @@ ssize_t pwritevFull(int fd, iovec* iov, int count, off_t offset) {
 }
 #endif // _WIN32
 
-WriteFileAtomicOptions& WriteFileAtomicOptions::setPermissions(
-    mode_t _permissions) {
-  permissions = _permissions;
-  return *this;
-}
-
-WriteFileAtomicOptions& WriteFileAtomicOptions::setSyncType(
-    SyncType _syncType) {
-  syncType = _syncType;
-  return *this;
-}
-
-WriteFileAtomicOptions& WriteFileAtomicOptions::setTemporaryDirectory(
-    std::string _temporaryDirectory) {
-  temporaryDirectory = std::move(_temporaryDirectory);
-  return *this;
-}
-
-namespace {
-void throwIfWriteFileAtomicFailed(
-    StringPiece function, StringPiece filename, std::int64_t rc) {
-  if (rc != 0) {
-    auto msg =
-        std::string{function} + "() failed to update " + std::string{filename};
-    throw std::system_error(rc, std::generic_category(), msg);
-  }
-}
-
-// We write the data to a temporary file name first, then atomically rename
-// it into place.
-//
-// If SyncType::WITH_SYNC is used, this ensures that the file contents will
-// always be valid, even if we crash or are killed partway through writing out
-// data.
-int writeFileAtomicNoThrowImpl(
+int writeFileAtomicNoThrow(
     StringPiece filename,
     iovec* iov,
     int count,
-    const WriteFileAtomicOptions& options) {
-  // create a null-terminated version of the filename
-  auto filePathString = std::string{filename};
-  auto temporaryFilePathString = fileutil_detail::getTemporaryFilePathString(
-      filePathString, options.temporaryDirectory);
+    mode_t permissions,
+    SyncType syncType) {
+  // We write the data to a temporary file name first, then atomically rename
+  // it into place.  This ensures that the file contents will always be valid,
+  // even if we crash or are killed partway through writing out data.
+  //
+  // Create a buffer that will contain two things:
+  // - A nul-terminated version of the filename
+  // - The temporary file name
+  std::vector<char> pathBuffer;
+  // Note that we have to explicitly pass in the size here to make
+  // sure the nul byte gets included in the data.
+  constexpr folly::StringPiece suffix(".XXXXXX\0", 8);
+  pathBuffer.resize((2 * filename.size()) + 1 + suffix.size());
+  // Copy in the filename and then a nul terminator
+  memcpy(pathBuffer.data(), filename.data(), filename.size());
+  pathBuffer[filename.size()] = '\0';
+  const char* const filenameCStr = pathBuffer.data();
+  // Now prepare the temporary path template
+  char* const tempPath = pathBuffer.data() + filename.size() + 1;
+  memcpy(tempPath, filename.data(), filename.size());
+  memcpy(tempPath + filename.size(), suffix.data(), suffix.size());
 
-  auto tmpFD = mkstemp(const_cast<char*>(temporaryFilePathString.data()));
+  auto tmpFD = mkstemp(tempPath);
   if (tmpFD == -1) {
     return errno;
   }
@@ -261,7 +241,7 @@ int writeFileAtomicNoThrowImpl(
       close(tmpFD);
     }
     if (!success) {
-      unlink(temporaryFilePathString.c_str());
+      unlink(tempPath);
     }
   };
 
@@ -270,14 +250,14 @@ int writeFileAtomicNoThrowImpl(
     return errno;
   }
 
-  rc = fchmod(tmpFD, options.permissions);
+  rc = fchmod(tmpFD, permissions);
   if (rc == -1) {
     return errno;
   }
 
   // To guarantee atomicity across power failues on POSIX file systems,
   // the temporary file must be explicitly sync'ed before the rename.
-  if (options.syncType == SyncType::WITH_SYNC) {
+  if (syncType == SyncType::WITH_SYNC) {
     rc = fsyncNoInt(tmpFD);
     if (rc == -1) {
       return errno;
@@ -292,36 +272,12 @@ int writeFileAtomicNoThrowImpl(
     return errno;
   }
 
-  rc = rename(temporaryFilePathString.c_str(), filePathString.c_str());
+  rc = rename(tempPath, filenameCStr);
   if (rc == -1) {
     return errno;
   }
   success = true;
   return 0;
-}
-} // namespace
-
-int writeFileAtomicNoThrow(
-    StringPiece filename,
-    iovec* iov,
-    int count,
-    mode_t permissions,
-    SyncType syncType) {
-  return writeFileAtomicNoThrowImpl(
-      filename,
-      iov,
-      count,
-      WriteFileAtomicOptions{}
-          .setPermissions(permissions)
-          .setSyncType(syncType));
-}
-
-int writeFileAtomicNoThrow(
-    StringPiece filename,
-    StringPiece data,
-    const WriteFileAtomicOptions& options) {
-  auto iov = getIOVecFor(ByteRange{data});
-  return writeFileAtomicNoThrowImpl(filename, &iov, 1, options);
 }
 
 void writeFileAtomic(
@@ -330,14 +286,11 @@ void writeFileAtomic(
     int count,
     mode_t permissions,
     SyncType syncType) {
-  auto rc = writeFileAtomicNoThrowImpl(
-      filename,
-      iov,
-      count,
-      WriteFileAtomicOptions{}
-          .setPermissions(permissions)
-          .setSyncType(syncType));
-  throwIfWriteFileAtomicFailed(__func__, filename, rc);
+  auto rc = writeFileAtomicNoThrow(filename, iov, count, permissions, syncType);
+  if (rc != 0) {
+    auto msg = std::string(__func__) + "() failed to update " + filename.str();
+    throw std::system_error(rc, std::generic_category(), msg);
+  }
 }
 
 void writeFileAtomic(
@@ -345,7 +298,9 @@ void writeFileAtomic(
     ByteRange data,
     mode_t permissions,
     SyncType syncType) {
-  auto iov = getIOVecFor(data);
+  iovec iov;
+  iov.iov_base = const_cast<unsigned char*>(data.data());
+  iov.iov_len = data.size();
   writeFileAtomic(filename, &iov, 1, permissions, syncType);
 }
 
@@ -357,22 +312,4 @@ void writeFileAtomic(
   writeFileAtomic(filename, ByteRange(data), permissions, syncType);
 }
 
-void writeFileAtomic(
-    StringPiece filename,
-    StringPiece data,
-    const WriteFileAtomicOptions& options) {
-  auto iov = getIOVecFor(ByteRange{data});
-  auto rc = writeFileAtomicNoThrowImpl(filename, &iov, 1, options);
-
-  throwIfWriteFileAtomicFailed(__func__, filename, rc);
-}
-
-namespace {
-iovec getIOVecFor(ByteRange byteRange) {
-  iovec iov;
-  iov.iov_base = const_cast<unsigned char*>(byteRange.data());
-  iov.iov_len = byteRange.size();
-  return iov;
-}
-} // namespace
 } // namespace folly

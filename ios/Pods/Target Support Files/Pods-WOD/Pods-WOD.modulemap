@@ -1,6 +1,0 @@
-module Pods_WOD {
-  umbrella header "Pods-WOD-umbrella.h"
-
-  export *
-  module * { export * }
-}

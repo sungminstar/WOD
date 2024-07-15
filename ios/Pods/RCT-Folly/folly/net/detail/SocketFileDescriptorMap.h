@@ -36,9 +36,10 @@ struct SocketFileDescriptorMap {
   static int socketToFd(SOCKET sock) noexcept;
 #elif defined(__EMSCRIPTEN__)
   static int close(int fd) noexcept;
+  static int close(void* sock) noexcept;
 
-  static int fdToSocket(int fd) noexcept;
-  static int socketToFd(int sock) noexcept;
+  static void* fdToSocket(int fd) noexcept;
+  static int socketToFd(void* sock) noexcept;
 #else
   static int close(int fd) noexcept { return ::close(fd); }
 

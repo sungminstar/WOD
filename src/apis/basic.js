@@ -1,6 +1,5 @@
-import { API } from ".";
+import {API} from '.';
 
-
-export const getAppVersion = async () => {
-    return await API.get('/api/version')
-}
+export const postAuthLogin = async user => {
+  return await API.post('/auth', user);
+};

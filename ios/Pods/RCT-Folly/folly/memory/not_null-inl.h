@@ -25,13 +25,16 @@ namespace folly {
 
 namespace detail {
 template <typename T>
-inline constexpr bool is_not_null_v = is_instantiation_of_v<not_null, T>;
+struct is_not_null_helper : std::false_type {};
 template <typename T>
-struct is_not_null : bool_constant<is_not_null_v<T>> {};
+struct is_not_null_helper<not_null<T>> : std::true_type {};
+template <typename T>
+struct is_not_null
+    : is_not_null_helper<std::remove_cv_t<std::remove_reference_t<T>>> {};
+template <typename T>
+inline constexpr bool is_not_null_v = is_not_null<T>::value;
 
-template <
-    typename T,
-    typename = std::enable_if_t<!is_not_null_v<remove_cvref_t<T>>>>
+template <typename T, typename = std::enable_if_t<!is_not_null_v<T>>>
 auto maybeUnwrap(T&& t) {
   return std::forward<T>(t);
 }

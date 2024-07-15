@@ -14,20 +14,12 @@
  * limitations under the License.
  */
 
-/**
- * MapUtil provides convenience functions to get a value from a map.
- *
- * @refcode folly/docs/examples/folly/MapUtil.cpp
- * @file MapUtil.h
- */
-
 #pragma once
 
 #include <tuple>
 
 #include <folly/Conv.h>
 #include <folly/Optional.h>
-#include <folly/Range.h>
 #include <folly/functional/Invoke.h>
 
 namespace folly {
@@ -81,7 +73,7 @@ template <
 const typename Map::mapped_type& get_or_throw(
     const Map& map,
     const Key& key,
-    const StringPiece& exceptionStrPrefix = StringPiece()) {
+    const std::string& exceptionStrPrefix = std::string()) {
   auto pos = map.find(key);
   if (pos != map.end()) {
     return pos->second;
@@ -96,7 +88,7 @@ template <
 typename Map::mapped_type& get_or_throw(
     Map& map,
     const Key& key,
-    const StringPiece& exceptionStrPrefix = StringPiece()) {
+    const std::string& exceptionStrPrefix = std::string()) {
   auto pos = map.find(key);
   if (pos != map.end()) {
     return pos->second;
@@ -170,11 +162,11 @@ const typename Map::mapped_type& get_ref_default(
 }
 
 /**
- * @brief Given a map and a key, return a pointer to the value corresponding to
- * the key in the map, or nullptr if the key doesn't exist in the map.
+ * Given a map and a key, return a pointer to the value corresponding to the
+ * key in the map, or nullptr if the key doesn't exist in the map.
  */
 template <class Map, typename Key = typename Map::key_type>
-const auto* get_ptr(const Map& map, const Key& key) {
+const typename Map::mapped_type* get_ptr(const Map& map, const Key& key) {
   auto pos = map.find(key);
   return (pos != map.end() ? &pos->second : nullptr);
 }
@@ -183,39 +175,9 @@ const auto* get_ptr(const Map& map, const Key& key) {
  * Non-const overload of the above.
  */
 template <class Map, typename Key = typename Map::key_type>
-auto* get_ptr(Map& map, const Key& key) {
+typename Map::mapped_type* get_ptr(Map& map, const Key& key) {
   auto pos = map.find(key);
   return (pos != map.end() ? &pos->second : nullptr);
-}
-
-/**
- * Same as `get_ptr` but for `find` variants that search for two keys at once.
- */
-template <class Map, typename Key = typename Map::key_type>
-std::pair<const typename Map::mapped_type*, const typename Map::mapped_type*>
-get_ptr2(const Map& map, const Key& key0, const Key& key1) {
-  const auto& iter_pair = map.find(key0, key1);
-  auto iter0 = iter_pair.first;
-  auto iter1 = iter_pair.second;
-  auto end = map.end();
-  return std::make_pair(
-      iter0 != end ? &iter0->second : nullptr,
-      iter1 != end ? &iter1->second : nullptr);
-}
-
-/**
- * Same as `get_ptr` but for `find` variants that search for two keys at once.
- */
-template <class Map, typename Key = typename Map::key_type>
-std::pair<typename Map::mapped_type*, typename Map::mapped_type*> get_ptr2(
-    Map& map, const Key& key0, const Key& key1) {
-  const auto& iter_pair = map.find(key0, key1);
-  auto iter0 = iter_pair.first;
-  auto iter1 = iter_pair.second;
-  auto end = map.end();
-  return std::make_pair(
-      iter0 != end ? &iter0->second : nullptr,
-      iter1 != end ? &iter1->second : nullptr);
 }
 
 // TODO: Remove the return type computations when clang 3.5 and gcc 5.1 are

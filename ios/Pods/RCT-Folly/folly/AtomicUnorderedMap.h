@@ -27,7 +27,6 @@
 #include <folly/Conv.h>
 #include <folly/Likely.h>
 #include <folly/Random.h>
-#include <folly/ScopeGuard.h>
 #include <folly/Traits.h>
 #include <folly/detail/AtomicUnorderedMapUtils.h>
 #include <folly/lang/Bits.h>
@@ -267,14 +266,8 @@ struct AtomicUnorderedInsertMap {
       return std::make_pair(ConstIterator(*this, existing), false);
     }
 
-    // The copying of key and the calling of func can throw exceptions. Nothing
-    // else in this function can throw an exception. In the event of an
-    // exception, deallocate as if the KV was beaten in a concurrent addition.
-    const auto idx = allocateNear(slot);
-    SCOPE_FAIL { slots_[idx].stateUpdate(CONSTRUCTING, EMPTY); };
-    Key* addr = &slots_[idx].keyValue().first;
-    new (addr) Key(key);
-    SCOPE_FAIL { addr->~Key(); };
+    auto idx = allocateNear(slot);
+    new (&slots_[idx].keyValue().first) Key(key);
     func(static_cast<void*>(&slots_[idx].keyValue().second));
 
     while (true) {
@@ -332,10 +325,8 @@ struct AtomicUnorderedInsertMap {
     }
     return ConstIterator(*this, slot);
   }
-  const_iterator begin() const { return cbegin(); }
 
   const_iterator cend() const { return ConstIterator(*this, 0); }
-  const_iterator end() const { return cend(); }
 
  private:
   enum : IndexType {
@@ -449,7 +440,7 @@ struct AtomicUnorderedInsertMap {
   /// tries, starting from the specified slot.  This is pulled out so we
   /// can specialize it differently during deterministic testing
   IndexType allocationAttempt(IndexType start, IndexType tries) const {
-    if (FOLLY_LIKELY(tries < 8 && start + tries < numSlots_)) {
+    if (LIKELY(tries < 8 && start + tries < numSlots_)) {
       return IndexType(start + tries);
     } else {
       IndexType rv;

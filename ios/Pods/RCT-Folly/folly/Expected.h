@@ -22,7 +22,6 @@
 
 #pragma once
 
-#include <cassert>
 #include <cstddef>
 #include <initializer_list>
 #include <new>
@@ -40,7 +39,6 @@
 #include <folly/Unit.h>
 #include <folly/Utility.h>
 #include <folly/lang/Exception.h>
-#include <folly/lang/Hint.h>
 
 #define FOLLY_EXPECTED_ID(X) FB_CONCATENATE(FB_CONCATENATE(Folly, X), __LINE__)
 
@@ -141,8 +139,8 @@ inline bool operator!=(
  * }
  */
 template <class Error>
-FOLLY_NODISCARD constexpr Unexpected<typename std::decay<Error>::type>
-makeUnexpected(Error&& err) {
+constexpr Unexpected<typename std::decay<Error>::type> makeUnexpected(
+    Error&& err) {
   return Unexpected<typename std::decay<Error>::type>{
       static_cast<Error&&>(err)};
 }
@@ -195,8 +193,8 @@ template <class Value, class Error>
 class Expected;
 
 template <class Error, class Value>
-FOLLY_NODISCARD constexpr Expected<typename std::decay<Value>::type, Error>
-makeExpected(Value&&);
+constexpr Expected<typename std::decay<Value>::type, Error> makeExpected(
+    Value&&);
 
 /**
  * Alias for an Expected type's associated value_type
@@ -257,9 +255,8 @@ auto doEmplaceAssign(int, T& t, U&& u)
 template <class T, class U>
 auto doEmplaceAssign(long, T& t, U&& u)
     -> decltype(void(T(static_cast<U&&>(u)))) {
-  auto addr = const_cast<void*>(static_cast<void const*>(std::addressof(t)));
   t.~T();
-  ::new (addr) T(static_cast<U&&>(u));
+  ::new ((void*)std::addressof(t)) T(static_cast<U&&>(u));
 }
 
 template <class T, class... Us>
@@ -271,9 +268,8 @@ auto doEmplaceAssign(int, T& t, Us&&... us)
 template <class T, class... Us>
 auto doEmplaceAssign(long, T& t, Us&&... us)
     -> decltype(void(T(static_cast<Us&&>(us)...))) {
-  auto addr = const_cast<void*>(static_cast<void const*>(std::addressof(t)));
   t.~T();
-  ::new (addr) T(static_cast<Us&&>(us)...);
+  ::new ((void*)std::addressof(t)) T(static_cast<Us&&>(us)...);
 }
 
 struct EmptyTag {};
@@ -310,7 +306,7 @@ struct ExpectedStorage {
   constexpr ExpectedStorage() noexcept(noexcept(E{}))
       : error_{}, which_(Which::eError) {}
   explicit constexpr ExpectedStorage(EmptyTag) noexcept
-      : ch_{unsafe_default_initialized}, which_(Which::eEmpty) {}
+      : ch_{}, which_(Which::eEmpty) {}
   template <class... Vs>
   explicit constexpr ExpectedStorage(ValueTag, Vs&&... vs) noexcept(
       noexcept(Value(static_cast<Vs&&>(vs)...)))
@@ -363,7 +359,7 @@ struct ExpectedUnion {
   union {
     Value value_;
     Error error_;
-    char ch_ = unsafe_default_initialized;
+    char ch_{};
   };
   Which which_ = Which::eEmpty;
 
@@ -510,6 +506,7 @@ struct ExpectedStorage<Value, Error, StorageType::eUnion>
         this->error().~Error();
         break;
       case Which::eEmpty:
+      default:
         break;
     }
     this->which_ = Which::eEmpty;
@@ -519,14 +516,13 @@ struct ExpectedStorage<Value, Error, StorageType::eUnion>
   }
   template <class... Vs>
   void assignValue(Vs&&... vs) {
-    auto& val = this->value();
     if (this->which_ == Which::eValue) {
-      expected_detail::doEmplaceAssign(0, val, static_cast<Vs&&>(vs)...);
+      expected_detail::doEmplaceAssign(
+          0, this->value(), static_cast<Vs&&>(vs)...);
     } else {
       this->clear();
-      auto addr =
-          const_cast<void*>(static_cast<void const*>(std::addressof(val)));
-      ::new (addr) Value(static_cast<Vs&&>(vs)...);
+      ::new ((void*)std::addressof(this->value()))
+          Value(static_cast<Vs&&>(vs)...);
       this->which_ = Which::eValue;
     }
   }
@@ -628,11 +624,6 @@ inline T&& operator,(T&& t, Unit) noexcept {
 }
 
 struct ExpectedHelper {
-  template <typename V, typename E>
-  FOLLY_ERASE static void assume_empty(Expected<V, E> const& x) {
-    compiler_may_unsafely_assume(x.which_ == Which::eEmpty);
-  }
-
   template <class Error, class T>
   static constexpr Expected<typename std::decay<T>::type, Error> return_(
       T&& t) {
@@ -666,7 +657,7 @@ struct ExpectedHelper {
       T::template return_<E>(
           (std::declval<Fn>()(std::declval<This>().value()), unit)),
       std::declval<Fns>()...)) {
-    if (FOLLY_LIKELY(ex.which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return T::then_(
           T::template return_<E>(
               // Uses the comma operator defined above IFF the lambda
@@ -685,7 +676,7 @@ struct ExpectedHelper {
       class Err = decltype(std::declval<No>()(std::declval<This>().error()))
           FOLLY_REQUIRES_TRAILING(!std::is_void<Err>::value)>
   static Ret thenOrThrow_(This&& ex, Yes&& yes, No&& no) {
-    if (FOLLY_LIKELY(ex.which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return Ret(static_cast<Yes&&>(yes)(static_cast<This&&>(ex).value()));
     }
     throw_exception(static_cast<No&&>(no)(static_cast<This&&>(ex).error()));
@@ -699,7 +690,7 @@ struct ExpectedHelper {
       class Err = decltype(std::declval<No>()(std::declval<This&>().error()))
           FOLLY_REQUIRES_TRAILING(std::is_void<Err>::value)>
   static Ret thenOrThrow_(This&& ex, Yes&& yes, No&& no) {
-    if (FOLLY_LIKELY(ex.which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return Ret(static_cast<Yes&&>(yes)(static_cast<This&&>(ex).value()));
     }
     static_cast<No&&>(no)(ex.error());
@@ -732,7 +723,7 @@ struct ExpectedHelper {
   static auto orElse_(This&& ex, No&& no, AndFns&&... fns) -> Expected<V, E> {
     // Note - this basically decays into then_ once the first type (No) is
     // called for the error.
-    if (FOLLY_LIKELY(ex.which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return T::template return_<E>((T::then_(T::template return_<E>(
           // Uses the comma operator defined above IFF the lambda
           // returns non-void.
@@ -795,7 +786,7 @@ struct ExpectedHelper {
       class Err = decltype(std::declval<No>()(std::declval<This&>().error()))
           FOLLY_REQUIRES_TRAILING(std::is_void<Err>::value)>
   static auto orElse_(This&& ex, No&& no, AndFns&&...) -> Expected<V, E> {
-    if (FOLLY_LIKELY(ex.which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(ex.which_ == expected_detail::Which::eValue)) {
       return return_<E>(static_cast<decltype(ex)&&>(ex).value());
     }
     static_cast<No&&>(no)(static_cast<This&&>(ex).error());
@@ -969,27 +960,6 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
     this->assign(std::move(that));
   }
 
-  // Implicit then-chaining conversion: if `Expected<Value, Error>` can be
-  // constructed from `V`, then we can directly convert `Expected<V, E>` to
-  // `Expected<Value, Error>`.
-  //
-  // Specifically, this allows a user-defined conversions of `V` to
-  // `Expected<Value, Error>` to work as desired with range-based iteration
-  // over containers of `Expected<V, E>`.
-  template <
-      class V,
-      class E FOLLY_REQUIRES_TRAILING(
-          !std::is_same<Expected<V, E>, Expected>::value &&
-          !std::is_constructible<Value, V&&>::value &&
-          std::is_constructible<Expected<Value, Error>, V&&>::value &&
-          std::is_constructible<Error, E&&>::value)>
-  /* implicit */ Expected(Expected<V, E> that)
-      : Base{expected_detail::EmptyTag{}} {
-    this->assign(std::move(that).then([](V&& v) -> Expected<Value, Error> {
-      return Expected<Value, Error>{v};
-    }));
-  }
-
   FOLLY_REQUIRES(std::is_copy_constructible<Value>::value)
   constexpr /* implicit */ Expected(const Value& val) noexcept(
       noexcept(Value(val)))
@@ -1049,18 +1019,6 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
       noexcept(Error(std::move(err.error()))))
       : Base{expected_detail::ErrorTag{}, std::move(err.error())} {}
 
-  template <class OtherError FOLLY_REQUIRES_TRAILING(
-      std::is_convertible<const OtherError&, Error>::value)>
-  constexpr /* implicit */ Expected(const Unexpected<OtherError>& err) noexcept(
-      noexcept(Error(err.error())))
-      : Base{expected_detail::ErrorTag{}, Error(err.error())} {}
-
-  template <class OtherError FOLLY_REQUIRES_TRAILING(
-      std::is_convertible<OtherError&&, Error>::value)>
-  constexpr /* implicit  */ Expected(Unexpected<OtherError>&& err) noexcept(
-      noexcept(Error(std::move(err.error()))))
-      : Base{expected_detail::ErrorTag{}, Error(std::move(err.error()))} {}
-
   /*
    * Assignment operators
    */
@@ -1113,6 +1071,12 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
     this->assignError(std::move(err.error()));
     return *this;
   }
+
+#ifndef __clang__
+  // Used only when an Expected is used with coroutines on MSVC/GCC
+  /* implicit */ Expected(expected_detail::PromiseReturn<Value, Error>&& p)
+      : Expected{std::move(*p.storage_)} {}
+#endif
 
   template <class... Ts FOLLY_REQUIRES_TRAILING(
       std::is_constructible<Value, Ts&&...>::value)>
@@ -1167,11 +1131,11 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
    * Accessors
    */
   constexpr bool hasValue() const noexcept {
-    return FOLLY_LIKELY(expected_detail::Which::eValue == this->which_);
+    return LIKELY(expected_detail::Which::eValue == this->which_);
   }
 
   constexpr bool hasError() const noexcept {
-    return FOLLY_UNLIKELY(expected_detail::Which::eError == this->which_);
+    return UNLIKELY(expected_detail::Which::eError == this->which_);
   }
 
   using Base::uninitializedByException;
@@ -1187,7 +1151,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   }
 
   Value&& value() && {
-    requireValueMove();
+    requireValue();
     return std::move(this->Base::value());
   }
 
@@ -1209,7 +1173,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   // Return a copy of the value if set, or a given default if not.
   template <class U>
   Value value_or(U&& dflt) const& {
-    if (FOLLY_LIKELY(this->which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(this->which_ == expected_detail::Which::eValue)) {
       return this->value_;
     }
     return static_cast<U&&>(dflt);
@@ -1217,7 +1181,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 
   template <class U>
   Value value_or(U&& dflt) && {
-    if (FOLLY_LIKELY(this->which_ == expected_detail::Which::eValue)) {
+    if (LIKELY(this->which_ == expected_detail::Which::eValue)) {
       return std::move(this->value_);
     }
     return static_cast<U&&>(dflt);
@@ -1229,7 +1193,7 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
 
   Value& operator*() & { return this->value(); }
 
-  Value&& operator*() && { return std::move(std::move(*this).value()); }
+  Value&& operator*() && { return std::move(this->value()); }
 
   const Value* operator->() const { return std::addressof(this->value()); }
 
@@ -1355,35 +1319,17 @@ class Expected final : expected_detail::ExpectedStorage<Value, Error> {
   }
 
  private:
-  friend struct expected_detail::PromiseReturn<Value, Error>;
-  using EmptyTag = expected_detail::EmptyTag;
-
-  explicit Expected(EmptyTag tag) noexcept : Base{tag} {}
-  // for when coroutine promise return-object conversion is eager
-  Expected(EmptyTag tag, Expected*& pointer) noexcept : Base{tag} {
-    pointer = this;
-  }
-
   void requireValue() const {
-    if (FOLLY_UNLIKELY(!hasValue())) {
-      if (FOLLY_LIKELY(hasError())) {
+    if (UNLIKELY(!hasValue())) {
+      if (LIKELY(hasError())) {
         throw_exception<BadExpectedAccess<Error>>(this->error_);
       }
       throw_exception<BadExpectedAccess<void>>();
     }
   }
 
-  void requireValueMove() {
-    if (FOLLY_UNLIKELY(!hasValue())) {
-      if (FOLLY_LIKELY(hasError())) {
-        throw_exception<BadExpectedAccess<Error>>(std::move(this->error_));
-      }
-      throw_exception<BadExpectedAccess<void>>();
-    }
-  }
-
   void requireError() const {
-    if (FOLLY_UNLIKELY(!hasError())) {
+    if (UNLIKELY(!hasError())) {
       throw_exception<BadExpectedAccess<void>>();
     }
   }
@@ -1395,13 +1341,13 @@ template <class Value, class Error>
 inline typename std::enable_if<IsEqualityComparable<Value>::value, bool>::type
 operator==(
     const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
-  if (FOLLY_UNLIKELY(lhs.uninitializedByException())) {
+  if (UNLIKELY(lhs.uninitializedByException())) {
     throw_exception<BadExpectedAccess<void>>();
   }
-  if (FOLLY_UNLIKELY(lhs.which_ != rhs.which_)) {
+  if (UNLIKELY(lhs.which_ != rhs.which_)) {
     return false;
   }
-  if (FOLLY_UNLIKELY(lhs.hasError())) {
+  if (UNLIKELY(lhs.hasError())) {
     return true; // All error states are considered equal
   }
   return lhs.value_ == rhs.value_;
@@ -1419,14 +1365,14 @@ template <class Value, class Error>
 inline typename std::enable_if<IsLessThanComparable<Value>::value, bool>::type
 operator<(
     const Expected<Value, Error>& lhs, const Expected<Value, Error>& rhs) {
-  if (FOLLY_UNLIKELY(
+  if (UNLIKELY(
           lhs.uninitializedByException() || rhs.uninitializedByException())) {
     throw_exception<BadExpectedAccess<void>>();
   }
-  if (FOLLY_UNLIKELY(lhs.hasError())) {
+  if (UNLIKELY(lhs.hasError())) {
     return !rhs.hasError();
   }
-  if (FOLLY_UNLIKELY(rhs.hasError())) {
+  if (UNLIKELY(rhs.hasError())) {
     return false;
   }
   return lhs.value_ < rhs.value_;
@@ -1486,8 +1432,8 @@ Value* get_pointer(Expected<Value, Error>& ex) noexcept {
  * }
  */
 template <class Error, class Value>
-FOLLY_NODISCARD constexpr Expected<typename std::decay<Value>::type, Error>
-makeExpected(Value&& val) {
+constexpr Expected<typename std::decay<Value>::type, Error> makeExpected(
+    Value&& val) {
   return Expected<typename std::decay<Value>::type, Error>{
       in_place, static_cast<Value&&>(val)};
 }
@@ -1535,44 +1481,35 @@ struct Promise;
 
 template <typename Value, typename Error>
 struct PromiseReturn {
-  Expected<Value, Error> storage_{EmptyTag{}};
-  Expected<Value, Error>*& pointer_;
-
-  /* implicit */ PromiseReturn(Promise<Value, Error>& p) noexcept
-      : pointer_{p.value_} {
-    pointer_ = &storage_;
+  Optional<Expected<Value, Error>> storage_;
+  Promise<Value, Error>* promise_;
+  /* implicit */ PromiseReturn(Promise<Value, Error>& promise) noexcept
+      : promise_(&promise) {
+    promise_->value_ = &storage_;
   }
-  PromiseReturn(PromiseReturn const&) = delete;
-  // letting dtor be trivial makes the coroutine crash
-  // TODO: fix clang/llvm codegen
+  PromiseReturn(PromiseReturn&& that) noexcept
+      : PromiseReturn{*that.promise_} {}
   ~PromiseReturn() {}
-  /* implicit */ operator Expected<Value, Error>() {
-    // handle both deferred and eager return-object conversion behaviors
-    // see docs for detect_promise_return_object_eager_conversion
-    if (folly::coro::detect_promise_return_object_eager_conversion()) {
-      assert(storage_.which_ == expected_detail::Which::eEmpty);
-      return Expected<Value, Error>{EmptyTag{}, pointer_}; // eager
-    } else {
-      assert(storage_.which_ != expected_detail::Which::eEmpty);
-      return std::move(storage_); // deferred
-    }
+  /* implicit */ operator Expected<Value, Error>() & {
+    return std::move(*storage_);
   }
 };
 
 template <typename Value, typename Error>
 struct Promise {
-  Expected<Value, Error>* value_ = nullptr;
-
+  Optional<Expected<Value, Error>>* value_ = nullptr;
   Promise() = default;
   Promise(Promise const&) = delete;
+  // This should work regardless of whether the compiler generates:
+  //    folly::Expected<Value, Error> retobj{ p.get_return_object(); } // MSVC
+  // or:
+  //    auto retobj = p.get_return_object(); // clang
   PromiseReturn<Value, Error> get_return_object() noexcept { return *this; }
   coro::suspend_never initial_suspend() const noexcept { return {}; }
   coro::suspend_never final_suspend() const noexcept { return {}; }
   template <typename U = Value>
   void return_value(U&& u) {
-    auto& v = *value_;
-    ExpectedHelper::assume_empty(v);
-    v = static_cast<U&&>(u);
+    value_->emplace(static_cast<U&&>(u));
   }
   void unhandled_exception() {
     // Technically, throwing from unhandled_exception is underspecified:
@@ -1581,59 +1518,29 @@ struct Promise {
   }
 };
 
-template <typename Error>
-struct UnexpectedAwaitable {
-  Unexpected<Error> o_;
-
-  explicit UnexpectedAwaitable(Unexpected<Error> o) : o_(std::move(o)) {}
-
-  constexpr std::false_type await_ready() const noexcept { return {}; }
-  void await_resume() { compiler_may_unsafely_assume_unreachable(); }
-
-  template <typename U>
-  FOLLY_ALWAYS_INLINE void await_suspend(
-      coro::coroutine_handle<Promise<U, Error>> h) {
-    auto& v = *h.promise().value_;
-    ExpectedHelper::assume_empty(v);
-    v = std::move(o_);
-    h.destroy();
-  }
-};
-
 template <typename Value, typename Error>
-struct ExpectedAwaitable {
+struct Awaitable {
   Expected<Value, Error> o_;
 
-  explicit ExpectedAwaitable(Expected<Value, Error> o) : o_(std::move(o)) {}
+  explicit Awaitable(Expected<Value, Error> o) : o_(std::move(o)) {}
 
   bool await_ready() const noexcept { return o_.hasValue(); }
   Value await_resume() { return std::move(o_.value()); }
 
   // Explicitly only allow suspension into a Promise
   template <typename U>
-  FOLLY_ALWAYS_INLINE void await_suspend(
-      coro::coroutine_handle<Promise<U, Error>> h) {
-    auto& v = *h.promise().value_;
-    ExpectedHelper::assume_empty(v);
-    v = makeUnexpected(std::move(o_.error()));
+  void await_suspend(coro::coroutine_handle<Promise<U, Error>> h) {
+    *h.promise().value_ = makeUnexpected(std::move(o_.error()));
     // Abort the rest of the coroutine. resume() is not going to be called
     h.destroy();
   }
 };
-
 } // namespace expected_detail
 
-template <typename Error>
-expected_detail::UnexpectedAwaitable<Error>
-/* implicit */ operator co_await(Unexpected<Error> o) {
-  return expected_detail::UnexpectedAwaitable<Error>{std::move(o)};
-}
-
 template <typename Value, typename Error>
-expected_detail::ExpectedAwaitable<Value, Error>
+expected_detail::Awaitable<Value, Error>
 /* implicit */ operator co_await(Expected<Value, Error> o) {
-  return expected_detail::ExpectedAwaitable<Value, Error>{std::move(o)};
+  return expected_detail::Awaitable<Value, Error>{std::move(o)};
 }
-
 } // namespace folly
 #endif // FOLLY_HAS_COROUTINES

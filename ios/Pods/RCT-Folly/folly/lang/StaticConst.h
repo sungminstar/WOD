@@ -16,8 +16,6 @@
 
 #pragma once
 
-#include <folly/Portability.h>
-
 namespace folly {
 
 //  StaticConst
@@ -30,9 +28,7 @@ struct StaticConst {
   static constexpr T value{};
 };
 
-#if FOLLY_CPLUSPLUS < 201703L
 template <typename T>
 constexpr T StaticConst<T>::value;
-#endif
 
 } // namespace folly
