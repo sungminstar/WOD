@@ -1,6 +1,16 @@
 import React, {useState} from 'react';
-import {View, TextInput, Button, Text, StyleSheet} from 'react-native';
-import axios from 'axios';
+import {
+  View,
+  TextInput,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+} from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import {login} from '../apis/auth';
+
+const logo = require('../assets/icons/logo.png');
 
 const Login = ({navigation}) => {
   const [email, setEmail] = useState('');
@@ -12,7 +22,7 @@ const Login = ({navigation}) => {
     return re.test(email);
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!validateEmail(email)) {
       setError('유효한 이메일을 입력하세요.');
       return;
@@ -23,39 +33,12 @@ const Login = ({navigation}) => {
       return;
     }
 
-    const loginData = {
-      email,
-      password,
-    };
-    console.log('Login request data:', loginData);
-
-    axios
-      .post('http://13.209.27.220:8080/auth', loginData)
-      .then(response => {
-        console.log('Login response:', response.data);
-        if (response.status === 200 && response.data.success) {
-          navigation.navigate('MainTab');
-        } else {
-          setError(response.data.message || '로그인에 실패했습니다.');
-        }
-      })
-      .catch(error => {
-        if (error.response) {
-          // 서버가 응답을 보냈으나 상태 코드가 2xx 범위를 벗어나는 경우
-          console.error('Error response:', error.response.data);
-          setError(
-            error.response.data.message || '로인 중 오류가 발생했습니다.',
-          );
-        } else if (error.request) {
-          // 요청이 만들어졌으나 응답을 받지 못한 경우
-          console.error('Error request:', error.request);
-          setError('서버로부터 응답이 없습니다.');
-        } else {
-          // 요청 설정 중에 오류가 발생한 경우
-          console.error('Error message:', error.message);
-          setError('요청을 보내는 중 오류가 발생했습니다.');
-        }
-      });
+    try {
+      const data = await login(email, password);
+      navigation.navigate('MainTab');
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const goToSignupPage = () => {
@@ -63,44 +46,74 @@ const Login = ({navigation}) => {
   };
 
   return (
-    <View style={styles.container}>
-      <Text>이메일:</Text>
+    <SafeAreaView style={styles.safeAreaView}>
+      <View style={styles.logoContainer}>
+        <Image source={logo} style={styles.logo} resizeMode="contain" />
+      </View>
       <TextInput
         style={styles.input}
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
+        placeholder="이메일을 입력해주세요."
       />
 
-      <Text>비밀번호:</Text>
       <TextInput
         style={styles.input}
         value={password}
         onChangeText={setPassword}
+        placeholder="비밀번호를 입력해주세요."
         secureTextEntry
       />
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button title="로그인" onPress={handleLogin} />
-      <Button title="회원가입" onPress={goToSignupPage} />
-    </View>
+
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity onPress={handleLogin} style={styles.button}>
+          <Text style={styles.buttonText}>로그인</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={goToSignupPage} style={styles.button}>
+          <Text style={styles.buttonText}>회원가입</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  safeAreaView: {
     flex: 1,
     justifyContent: 'center',
     padding: 16,
+    backgroundColor: '#fff',
   },
-
+  logoContainer: {
+    alignItems: 'center',
+    margin: 20,
+  },
+  logo: {
+    width: 120,
+    height: 88,
+  },
   input: {
     height: 40,
-    borderColor: 'gray',
+    borderColor: '#eee',
     borderWidth: 1,
     marginBottom: 12,
     paddingHorizontal: 8,
+  },
+  buttonContainer: {
+    marginTop: 32,
+  },
+  button: {
+    marginVertical: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFE082',
+    alignItems: 'center',
+  },
+  buttonText: {
+    fontSize: 16,
+    margin: 12,
   },
   error: {
     color: 'red',

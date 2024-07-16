@@ -8,6 +8,7 @@ import {
   Dimensions,
   FlatList,
   ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import axios from 'axios';
@@ -27,7 +28,7 @@ const fetchFeedDetails = async feedId => {
       `http://13.209.27.220:8080/feed/${feedId}`,
     );
     if (response.status === 200 && response.data.success) {
-      return response.data.result; // 피드의 상세 정보가 담긴 데이터 반환
+      return response.data.result;
     } else {
       throw new Error('피드 상세 정보를 불러오지 못했습니다');
     }
@@ -50,7 +51,6 @@ const fetchFeeds = async (setFeeds, setLoading) => {
     if (response.status === 200 && response.data.success) {
       const feedItems = response.data.result.content;
 
-      // Log each feed item to the console
       feedItems.forEach(feed => {
         console.log('Uploaded feed:', feed);
       });
@@ -116,16 +116,12 @@ const HomeFeed = () => {
         <FlatList
           data={item.images}
           keyExtractor={(image, index) => `image-${item.id}-${index}`}
-          renderItem={({item: imageUri}) => {
-            console.log('Image URI:', imageUri); // Logging inside the function body
-            return (
-              <Image
-                source={{uri: imageUri}}
-                style={{width, height: width, marginBottom: 8}}
-                resizeMode="contain"
-              />
-            );
-          }}
+          renderItem={({item: imageUri}) => (
+            <Image
+              source={{uri: `http://13.209.27.220:8080${imageUri}`}}
+              style={{width: width, height: width}}
+            />
+          )}
           horizontal
           showsHorizontalScrollIndicator={false}
           pagingEnabled
@@ -139,15 +135,22 @@ const HomeFeed = () => {
             paddingHorizontal: 16,
             marginBottom: 32,
           }}>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 8,
+            }}>
             <TouchableOpacity>
               <Image source={heart} style={{width: 32, height: 32}} />
             </TouchableOpacity>
+            <Text>{item.emotions.total}</Text>
             <TouchableOpacity onPress={() => setIsVisible(true)}>
               <Image source={comment} style={{width: 32, height: 32}} />
             </TouchableOpacity>
+            <Text>{item.replys.length}</Text>
           </View>
-          <Text>외 {item.emotions.total}명이 좋아합니다.</Text>
         </View>
         <View style={{marginHorizontal: 16, marginBottom: 16}}>
           <Text style={{fontSize: 16, fontWeight: '600', marginBottom: 4}}>
@@ -161,17 +164,32 @@ const HomeFeed = () => {
     );
   };
 
+  // 로딩중 화면
   if (loading) {
     return (
-      <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-        <ActivityIndicator size="large" color="#0000ff" />
-      </View>
+      <SafeAreaView style={styles.safeAreaView}>
+        <View style={styles.header}>
+          <TouchableOpacity>
+            <Image source={logo} style={styles.logo} resizeMode="contain" />
+          </TouchableOpacity>
+        </View>
+        <View style={styles.loadingSpinner}>
+          <ActivityIndicator size="large" color="#FFE082" />
+        </View>
+      </SafeAreaView>
     );
   }
 
+  // 로딩 false 홈 피드
   return (
-    <SafeAreaView style={{flex: 1, backgroundColor: '#FFF'}}>
-      <View style={{flex: 1, backgroundColor: '#FFF'}}>
+    <SafeAreaView style={styles.safeAreaView}>
+      <View style={styles.header}>
+        <TouchableOpacity>
+          <Image source={logo} style={styles.logo} resizeMode="contain" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.content}>
         <FlatList
           data={feeds}
           renderItem={renderFeed}
@@ -183,5 +201,32 @@ const HomeFeed = () => {
     </SafeAreaView>
   );
 };
+
+const styles = StyleSheet.create({
+  safeAreaView: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  header: {
+    borderStyle: 'solid',
+    borderBottomWidth: 0.5,
+    borderColor: '#eee',
+  },
+  logo: {
+    width: 100,
+    height: 32,
+    margin: 16,
+  },
+  content: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  loadingSpinner: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+});
 
 export default HomeFeed;
