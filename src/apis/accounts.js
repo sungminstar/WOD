@@ -13,3 +13,10 @@ export const getUserInfo = async () => {
   console.log('getUserInfo response:', userData);
   return userData;
 };
+
+// 사용자 마이페이지 게시글 이미지 요청 함수
+export const getMyPageInfo = async () => {
+  const userData = await apiRequest('get', '/accounts/info/mypage');
+  console.log('MyPageInfo response:', userData);
+  return userData;
+};
